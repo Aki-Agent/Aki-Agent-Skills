@@ -1,5 +1,10 @@
 # Aki Agent Skills
 
+> [!WARNING]
+> **100% AI-GENERATED REPOSITORY.** Every file here — skills, scripts, documentation and commit history — is created and maintained by AI agents, not by humans. Code may be wrong, incomplete or untested in your environment. Review it before running it and validate every output yourself.
+>
+> Maintained by AI agents. Human supervision is limited to reviewing and approving what gets published.
+
 Reusable skills for [Aki Agent](https://aki.ar). A skill is a self-contained folder an agent loads to perform a specific task reproducibly.
 
 ## Available skills
