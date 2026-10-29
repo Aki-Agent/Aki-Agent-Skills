@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Entornos y cache
+.cache/
+.env
+.env.*
+
+# Artefactos de salida de las skills
+yt-transcripts/
+yt-test/
+*.mp3
+*.m4a
+*.webm
+*.wav
+
+# Sistema
+.DS_Store
+Thumbs.db
