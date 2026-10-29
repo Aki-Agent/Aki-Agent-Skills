@@ -1,85 +1,85 @@
 ---
 name: youtube-transcriber
-description: Descarga el audio de un video de YouTube y genera su transcripcion completa con marcas de tiempo. Usar cuando el usuario pida transcribir, subtitular, extraer el texto, resumir o analizar el contenido hablado de un video de YouTube (o de una lista de videos), incluso si no hay subtitulos disponibles.
+description: Downloads a YouTube video's audio and produces its full transcript with timestamps. Use when the user asks to transcribe, subtitle, extract the text of, summarize or analyze the spoken content of a YouTube video (or a list of videos), even when no subtitles are available.
 ---
 
 # YouTube Transcriber
 
-Convierte un video de YouTube en texto util: transcripcion con timestamps, SRT y Markdown.
+Turns a YouTube video into usable text: timestamped transcript, SRT and Markdown.
 
-Sigue el formato `SKILL.md` + `scripts/` (Aki Agent Studio / Claude). No requiere API keys ni servicios de pago: usa `yt-dlp` y `faster-whisper` locales.
+Follows the `SKILL.md` + `scripts/` layout (Aki Agent Studio / Claude). No API keys or paid services: it uses local `yt-dlp` and `faster-whisper`.
 
-## Cuando usar esta skill
+## When to use this skill
 
-- "transcribi este video", "pasame el texto de este video"
-- "resumime esta charla / este podcast de YouTube"
-- "necesito los subtitulos en .srt"
-- Analisis de contenido: encontrar citas, afirmaciones, minutos exactos.
+- "transcribe this video", "give me the text of this video"
+- "summarize this talk / this YouTube podcast"
+- "I need the subtitles as `.srt`"
+- Content analysis: finding quotes, claims, exact minute marks.
 
-No la uses para: descargar video en calidad alta (esto extrae solo audio), ni para plataformas distintas de YouTube sin adaptar `yt-dlp`.
+Do not use it for: high-quality video download (this extracts audio only), or for platforms other than YouTube without adapting `yt-dlp`.
 
-## Estrategia (importante)
+## Strategy (important)
 
-1. **Primero subtitulos** (`--subs`): si el video tiene subtitulos manuales o automaticos, se obtienen en segundos y con puntuacion correcta. Es el camino preferido.
-2. **Fallback Whisper local** (`faster-whisper`, CPU): si no hay subtitulos, o si estan bloqueados (HTTP 429), o el usuario necesita el audio real.
-3. Un `HTTP 429` de YouTube suele ser transitorio: reintentar una vez antes de pasar a Whisper.
+1. **Subtitles first** (`--subs`): if the video has manual or automatic subtitles, they come back in seconds with correct punctuation. This is the preferred path.
+2. **Local Whisper fallback** (`faster-whisper`, CPU): when there are no subtitles, when they are blocked (HTTP 429), or when the user needs the actual audio.
+3. An `HTTP 429` from YouTube is usually transient: retry once before falling back to Whisper.
 
-## Uso
-
-```bash
-python3 scripts/yt_transcribe.py "<url o id>" --subs --lang es
-```
-
-Salidas en `/workspace/yt-transcripts/`: `.txt` (parrafos con `[hh:mm]`), `.md` (metadata + capitulos + transcripcion), `.json` (segmentos con start/end), y `.srt` con `--srt`.
-
-### Prueba rapida
+## Usage
 
 ```bash
-python3 scripts/yt_transcribe.py "https://www.youtube.com/watch?v=<ID_DEL_VIDEO>" --subs --lang es --srt
+python3 scripts/yt_transcribe.py "<url or id>" --subs --lang es
 ```
 
-Deberia terminar con `LISTO -> .../archivo.txt (N segmentos, fuente: ...)`.
+Outputs in `/workspace/yt-transcripts/`: `.txt` (paragraphs with `[hh:mm]`), `.md` (metadata + chapters + transcript), `.json` (segments with start/end), and `.srt` with `--srt`.
 
-### Parametros
+### Quick test
 
-| Flag | Para que |
+```bash
+python3 scripts/yt_transcribe.py "https://www.youtube.com/watch?v=<VIDEO_ID>" --subs --lang es --srt
+```
+
+It should end with `DONE -> .../file.txt (N segments, source: ...)`.
+
+### Flags
+
+| Flag | Purpose |
 |---|---|
-| `--subs` | intenta subtitulos de YouTube primero (muy recomendado) |
-| `--model base\|small\|medium` | calidad de Whisper. `base` = rapido (~0.26x tiempo real), `small` = mejor, `medium` = maximo (lento en CPU) |
-| `--lang es` | fija idioma y evita autodeteccion erronea. Omitilo para autodetectar |
-| `--range 0-600` | transcribe solo un tramo (segundos). Util para videos largos |
-| `--srt` | genera ademas subtitulos `.srt` |
-| `-o ruta/sin_extension` | nombre de salida |
-| `--outdir DIR` | carpeta de salida |
+| `--subs` | try YouTube subtitles first (highly recommended) |
+| `--model base\|small\|medium` | Whisper quality. `base` = fast (~0.26x real time), `small` = better, `medium` = best (slow on CPU) |
+| `--lang es` | pin the language and avoid wrong auto-detection. Omit it to auto-detect |
+| `--range 0-600` | transcribe only a slice (seconds). Useful for long videos |
+| `--srt` | also generate `.srt` subtitles |
+| `-o path/without_extension` | output name |
+| `--outdir DIR` | output directory |
 
-### Videos largos
+### Long videos
 
-Whisper en CPU corre a ~4x tiempo real con `base`: 1 hora de video ≈ 15 min de proceso. Para videos de mas de ~20 min:
+Whisper on CPU runs at ~4x faster than real time with `base`: 1 hour of video ≈ 15 min of processing. For videos over ~20 min:
 
-1. Correr por tramos con `--range` y concatenar, o
-2. Preferir `--subs` (instantaneo), o
-3. Avisar al usuario del tiempo estimado antes de empezar.
+1. Run it in slices with `--range` and concatenate, or
+2. Prefer `--subs` (instant), or
+3. Tell the user the estimated time before starting.
 
-## Setup (idempotente)
+## Setup (idempotent)
 
-El script hace bootstrap solo. Si hace falta manualmente:
+The script bootstraps itself. If you need to do it manually:
 
 ```bash
 pip install --break-system-packages yt-dlp faster-whisper "av==12.3.0"
 ```
 
-- `av==12.3.0` es requisito: `av>=13` rompe `faster-whisper` (`metadata_errors`).
-- El sandbox puede recrearse y perder los `pip install`; volver a correr el script lo resuelve.
-- El modelo de Whisper se cachea en `/workspace/.cache/whisper` (persistente). La primera descarga de `base` es ~140 MB.
+- `av==12.3.0` is required: `av>=13` breaks `faster-whisper` (`metadata_errors`).
+- The sandbox can be recreated and lose the `pip install`s; running the script again fixes it.
+- The Whisper model is cached in `/workspace/.cache/whisper` (persistent). The first `base` download is ~140 MB.
 
-## Despues de transcribir
+## After transcribing
 
-1. Leer el `.txt` o `.md` generado (no inventar contenido).
-2. Si el usuario pidio resumen o analisis: trabajar sobre ese texto y citar timestamps (`[12:34]`).
-3. Entregar el archivo con la tool de descarga si lo pide; si no, mostrar el resumen en el chat.
+1. Read the generated `.txt` or `.md` (never invent content).
+2. If the user asked for a summary or analysis: work from that text and cite timestamps (`[12:34]`).
+3. Deliver the file with the download tool if requested; otherwise show the summary in chat.
 
-## Notas y limites
+## Notes and limits
 
-- Solo contenido publico o no listado. Videos privados, con restriccion de edad o con DRM pueden fallar: informar el error real de `yt-dlp`.
-- Respetar derechos de autor: transcribir para analisis personal, no para redistribuir el contenido integro.
-- Si `faster-whisper` no puede descargar el modelo por limite del entorno, usar `--subs` o `--model tiny`.
+- Public or unlisted content only. Private, age-restricted or DRM-protected videos may fail: report the real `yt-dlp` error.
+- Respect copyright: transcribe for personal analysis, not to redistribute the full content.
+- If `faster-whisper` cannot download the model due to environment limits, use `--subs` or `--model tiny`.

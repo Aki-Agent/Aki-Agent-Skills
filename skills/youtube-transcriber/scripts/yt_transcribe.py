@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-yt_transcribe.py - Descarga audio de YouTube y lo transcribe con timestamps.
+yt_transcribe.py - Downloads YouTube audio and transcribes it with timestamps.
 
-Uso:
-  python3 yt_transcribe.py <URL_O_ID> [-o SALIDA] [--model base|small|medium]
-                           [--lang es] [--srt] [--subs] [--range 0-600]
+Usage:
+  python3 yt_transcribe.py <URL_OR_ID> [-o OUTPUT] [--model base|small|medium]
+                            [--lang es] [--srt] [--subs] [--range 0-600]
 
-Salidas: <salida>.txt (texto plano), <salida>.srt (subtitulos), <salida>.json (segmentos)
+Outputs: <output>.txt (plain text), <output>.srt (subtitles), <output>.json (segments)
 """
 import argparse, json, os, re, shutil, subprocess, sys, time
 
@@ -23,7 +23,7 @@ def log(msg):
 
 
 def bootstrap():
-    """Instala dependencias si faltan (el sandbox puede recrearse y perder pip installs)."""
+    """Installs missing dependencies (the sandbox can be recreated and lose pip installs)."""
     need = False
     try:
         import faster_whisper  # noqa
@@ -35,7 +35,7 @@ def bootstrap():
     if shutil.which("yt-dlp") is None and not os.path.exists(os.path.expanduser("~/.local/bin/yt-dlp")):
         need = True
     if need:
-        log("instalando dependencias (puede tardar ~30s la primera vez)...")
+        log("installing dependencies (may take ~30s the first time)...")
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "--quiet", "--break-system-packages", *DEPS],
             check=False,
@@ -80,7 +80,7 @@ def get_metadata(url):
 
 
 def try_subs(url, outdir, langs):
-    """Atajo: subtitulos (manuales o automaticos) si YouTube los da sin rate-limit."""
+    """Shortcut: subtitles (manual or automatic) when YouTube serves them without rate-limiting."""
     cmd = yt_dlp_bin() + [
         "--no-warnings", "--skip-download", "--write-subs", "--write-auto-subs",
         "--sub-langs", langs, "--sub-format", "srt/vtt/best",
@@ -93,7 +93,7 @@ def try_subs(url, outdir, langs):
 
 
 def parse_subs(path):
-    """Convierte srt/vtt a segmentos (start, end, text)."""
+    """Converts srt/vtt into segments (start, end, text)."""
     txt = open(path, encoding="utf-8", errors="ignore").read()
     blocks = re.split(r"\n\s*\n", txt.replace("\r", ""))
     ts = re.compile(r"(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})")
@@ -118,7 +118,7 @@ def parse_subs(path):
 
 
 def download_audio(url, outdir, time_range=None):
-    # nombre unico por corrida para no reutilizar audio de otra descarga
+    # unique name per run so audio from a previous download is never reused
     tag = re.search(r"v=([A-Za-z0-9_-]{11})", url)
     tag = tag.group(1) if tag else "audio"
     for f in os.listdir(outdir):
@@ -143,7 +143,7 @@ def download_audio(url, outdir, time_range=None):
 def transcribe(audio, model_size, lang=None):
     from faster_whisper import WhisperModel
     t0 = time.time()
-    log(f"cargando modelo '{model_size}' (cache: {MODEL_CACHE})...")
+    log(f"loading model '{model_size}' (cache: {MODEL_CACHE})...")
     model = WhisperModel(model_size, device="cpu", compute_type="int8", download_root=MODEL_CACHE)
     segs, info = model.transcribe(
         audio, language=lang, vad_filter=True, beam_size=5,
@@ -153,7 +153,7 @@ def transcribe(audio, model_size, lang=None):
     for s in segs:
         out.append({"start": round(s.start, 2), "end": round(s.end, 2), "text": s.text.strip()})
         print(f"  [{fmt(s.start)}] {s.text.strip()}", flush=True)
-    log(f"transcrito en {time.time()-t0:.0f}s (audio {info.duration:.0f}s)")
+    log(f"transcribed in {time.time()-t0:.0f}s (audio {info.duration:.0f}s)")
     return out, {"language": info.language, "language_probability": round(info.language_probability, 2), "duration": info.duration}
 
 
@@ -171,7 +171,7 @@ def to_srt(segs):
 
 
 def wrap_paragraphs(segs, max_chars=700, gap=2.0):
-    """Agrupa segmentos en parrafos legibles con marca de tiempo al inicio."""
+    """Groups segments into readable paragraphs with a timestamp at the start."""
     out, buf, start, last_end = [], [], None, None
     for s in segs:
         if start is None:
@@ -188,23 +188,23 @@ def wrap_paragraphs(segs, max_chars=700, gap=2.0):
 
 
 def to_md(meta, segs, text, source):
-    lines = [f"# {meta.get('title') or 'Transcripcion'}", ""]
+    lines = [f"# {meta.get('title') or 'Transcript'}", ""]
     if meta.get("channel"):
-        lines += [f"**Canal:** {meta['channel']}  "]
+        lines += [f"**Channel:** {meta['channel']}  "]
     if meta.get("duration"):
-        lines += [f"**Duracion:** {fmt(meta['duration'])}  "]
+        lines += [f"**Duration:** {fmt(meta['duration'])}  "]
     if meta.get("upload_date"):
         d = meta["upload_date"]
-        lines += [f"**Publicado:** {d[:4]}-{d[4:6]}-{d[6:8]}  "]
+        lines += [f"**Published:** {d[:4]}-{d[4:6]}-{d[6:8]}  "]
     if meta.get("url"):
-        lines += [f"**Fuente:** {meta['url']}  "]
-    lines += [f"**Metodo:** {source}  ", "", "---", ""]
+        lines += [f"**Source:** {meta['url']}  "]
+    lines += [f"**Method:** {source}  ", "", "---", ""]
     if meta.get("chapters"):
-        lines += ["## Capitulos", ""]
+        lines += ["## Chapters", ""]
         for c in meta["chapters"]:
             lines.append(f"- `{fmt(c['start'] or 0)}` {c['title']}")
         lines += ["", "---", ""]
-    lines += ["## Transcripcion", "", text, ""]
+    lines += ["## Transcript", "", text, ""]
     return "\n".join(lines)
 
 
@@ -213,10 +213,10 @@ def main():
     ap.add_argument("target")
     ap.add_argument("-o", "--output", default=None)
     ap.add_argument("--model", default="base", choices=["tiny", "base", "small", "medium"])
-    ap.add_argument("--lang", default=None, help="codigo ISO (es, en...). None = autodetecta")
-    ap.add_argument("--srt", action="store_true", help="generar tambien .srt")
-    ap.add_argument("--subs", action="store_true", help="intentar subtitulos de YouTube antes de Whisper")
-    ap.add_argument("--range", default=None, help="rango a descargar, ej 0-600 (segundos)")
+    ap.add_argument("--lang", default=None, help="ISO code (es, en...). None = auto-detect")
+    ap.add_argument("--srt", action="store_true", help="also generate .srt")
+    ap.add_argument("--subs", action="store_true", help="try YouTube subtitles before Whisper")
+    ap.add_argument("--range", default=None, help="download range, e.g. 0-600 (seconds)")
     ap.add_argument("--outdir", default=None)
     a = ap.parse_args()
 
@@ -225,34 +225,34 @@ def main():
     outdir = a.outdir or os.path.join(WORKSPACE, "yt-transcripts")
     os.makedirs(outdir, exist_ok=True)
 
-    log(f"obteniendo metadatos de {url}")
+    log(f"fetching metadata for {url}")
     meta = get_metadata(url)
     if meta.get("title"):
-        log(f"titulo: {meta['title']} ({fmt(meta.get('duration') or 0)})")
+        log(f"title: {meta['title']} ({fmt(meta.get('duration') or 0)})")
     base = a.output or re.sub(r"[^\w\-. ]", "_", (meta.get("title") or meta.get("id") or "video"))[:80]
     base = os.path.join(outdir, base.strip())
 
     segs, info, source = None, {}, None
     if a.subs:
-        log("probando subtitulos de YouTube...")
+        log("trying YouTube subtitles...")
         sp = try_subs(url, outdir, (a.lang or "es") + ".*,en.*")
         if sp:
             segs = parse_subs(sp)
             if segs:
-                source = "subtitulos de YouTube"
-                log(f"usando {len(segs)} segmentos de subtitulos")
+                source = "YouTube subtitles"
+                log(f"using {len(segs)} subtitle segments")
 
     if not segs:
-        log("descargando audio...")
+        log("downloading audio...")
         audio = download_audio(url, outdir, a.range)
         if not audio:
-            log("ERROR: no se pudo descargar el audio")
+            log("ERROR: could not download audio")
             sys.exit(1)
         segs, info = transcribe(audio, a.model, a.lang)
         source = f"Whisper {a.model}"
 
     if not segs:
-        log("ERROR: transcripcion vacia")
+        log("ERROR: empty transcript")
         sys.exit(1)
 
     text = wrap_paragraphs(segs)
@@ -263,7 +263,7 @@ def main():
     if a.srt:
         open(base + ".srt", "w", encoding="utf-8").write(to_srt(segs))
 
-    log(f"LISTO -> {base}.txt  ({len(segs)} segmentos, fuente: {source})")
+    log(f"DONE -> {base}.txt  ({len(segs)} segments, source: {source})")
     print(f"CHARS={len(text)}")
 
 

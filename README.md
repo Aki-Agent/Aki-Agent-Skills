@@ -13,6 +13,7 @@ Reusable skills for [Aki Agent](https://aki.ar). A skill is a self-contained fol
 ```
 .
 ├── README.md
+├── AGENTS.md
 ├── LICENSE
 ├── skills/
 │   └── <skill-name>/
@@ -47,17 +48,13 @@ To run it by hand, follow the **Quick test** section in the skill's `SKILL.md`.
 
 ### Conventions
 
+- **English only:** every file in this repository is written in English — `SKILL.md`, `AGENTS.md`, code, comments, examples and commit messages. Skills follow the user's language at runtime, but their source never mixes languages.
+- **One skill, one folder:** everything a skill needs lives inside `skills/<name>/`. Repo-level files hold shared rules only; anything skill-specific stays in that skill's `SKILL.md`.
 - **Idempotent:** the environment can be recreated and lose installed packages. A script must run twice without breaking.
 - **Persistent paths:** cache models and intermediate artifacts in a persistent directory, not `/tmp`.
 - **Honest errors:** surface the real error from the underlying tool; never invent output.
 - **No sensitive data:** no credentials, tokens, personal data, or usernames in paths, code, or examples.
 - **Dual output:** plain text plus a structured (JSON) version for downstream steps.
-
-## Requirements
-
-- Python 3.10+
-- `ffmpeg` (used by audio/video skills)
-- Network access for first-time dependency installs
 
 ## Privacy
 
