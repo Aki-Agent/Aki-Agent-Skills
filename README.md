@@ -12,6 +12,7 @@ Reusable skills for [Aki Agent](https://aki.ar). A skill is a self-contained fol
 | Skill | What it does | Status |
 |---|---|---|
 | [youtube-transcriber](skills/youtube-transcriber/) | Downloads a YouTube video's audio and outputs a transcript with timestamps: `.txt`, `.md`, `.json`, `.srt` | stable |
+| [docx-builder](skills/docx-builder/) | Creates reproducible DOCX documents from a Markdown draft with optional PNG figures | stable |
 
 ## Repository layout
 
