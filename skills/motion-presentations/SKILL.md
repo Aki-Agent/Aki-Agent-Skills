@@ -1,6 +1,6 @@
 ---
 name: motion-presentations
-description: Builds animated, self-contained HTML presentations from premade templates with configurable primary, secondary and tertiary colors, and optionally renders them to MP4. Use when a user wants a presentation, slide deck, explainer or video from a script, transcript or topic, especially to explain AI and technology in everyday language or to match a company's brand.
+description: Builds animated, self-contained HTML presentations from premade templates with configurable primary, secondary and tertiary colors, and optionally renders them to MP4 or exports them to PDF and PPTX. Use when a user wants a presentation, slide deck, explainer or video from a script, transcript or topic, especially to explain AI and technology in everyday language or to match a company's brand, or when they ask to download the deck as PDF or PowerPoint.
 ---
 
 # Motion Presentations
@@ -13,7 +13,7 @@ Pick one premade template, recolor it, replace its slides and deliver one HTML f
 - The deck must match a theme, a logo or a company's colors.
 - A single offline HTML file is preferable to a PowerPoint file or a hosted tool.
 
-Do not use it for editable `.pptx` files or for decks the user will edit in an office suite.
+Do not use it for editable `.pptx` files or for decks the user will edit in an office suite. The PDF and PPTX export below is a visual capture, not an editable-by-text deck: state that when delivering.
 
 ## Requirements
 
@@ -23,6 +23,8 @@ Do not use it for editable `.pptx` files or for decks the user will edit in an o
 | `start_browser.js`, `check.js`, `close_browser.js`, `extract_palette.js`, `apply_brand.js`, `render.js` | Node 22+ |
 | `start_browser.js`, `check.js`, `extract_palette.js`, `render.js` | Edge or Chrome |
 | `render.js`, `qc_video.js` | ffmpeg and ffprobe on `PATH` |
+| `export_slides.mjs` | `puppeteer-core` + Chrome (`/usr/bin/google-chrome`), Node 18+ |
+| `export_pack.py` | `pillow`, `img2pdf`, `python-pptx` inside a venv |
 
 No application npm packages. The browser-control scripts use Node's native `WebSocket` and `fetch`.
 
@@ -231,7 +233,58 @@ The render replaces timers, `requestAnimationFrame`, `performance.now`, `Date.no
 
 `qc_video.js` must report the expected resolution, `frames = slides × fps × sec`, `yuv420p`, `range=tv`, and no black or frozen stretches. A slide with no motion for over 4 s is reported as frozen: check whether that is expected before re-rendering.
 
-### 7. Deliver
+### 7. Export to PDF and PPTX (only if requested)
+
+Capture each slide as an image and mount it page by page. Do not rebuild the layout with native PowerPoint shapes: fidelity wins over editability. Generate only the format the user asked for, and say in the delivery that the PPTX keeps the design but its text is not editable.
+
+```bash
+python3 -m venv /workspace/.venv            # global pip fails: PEP 668 externally-managed-environment
+/workspace/.venv/bin/pip install pillow img2pdf python-pptx
+npm init -y && npm install --silent puppeteer-core
+
+node scripts/export_slides.mjs --html /workspace/deck.html \
+  --out /workspace/.cache/motion-presentations/export --sec 4
+/workspace/.venv/bin/python scripts/export_pack.py \
+  --manifest /workspace/.cache/motion-presentations/export/manifest.json --name Deck-Title
+```
+
+Why these choices:
+
+- **Serve over HTTP on 127.0.0.1**, not `file://` (fonts and same-origin assets are unreliable there).
+- **Drive navigation with the deck's own engine** (`window.go(i, true)`, detected by the script). A copy that only toggles `display` freezes every JS-rendered value at its start: in a real run a `data-count` slide captured `0` until the engine ran. Counters, typewriter text and canvas charts need the engine plus a full animation window.
+- `--sec` must be at least the `--sec` value `check.js` passes for that template, so animations finish before the shot.
+- Chrome flags `--no-sandbox --disable-gpu --disable-dev-shm-usage --font-render-hinting=none`; viewport 1920x1080 with `deviceScaleFactor: 2` -> 3840x2160 PNG. Wait `document.fonts.ready` plus 400 ms before the first capture, and screenshot with `clip: {x:0, y:0, width:1920, height:1080}` so no bar or margin leaks in.
+- Before exporting, force the stage scale to 1 (`#stage{transform:none!important}`, `html,body` 1920x1080) so the clip matches the stage, and hide `#chrome` (brand, counter, progress, hint), nav buttons, dots and fullscreen.
+- Use `await new Promise(r => setTimeout(r, n))` between slides; `page.waitForTimeout` is not available.
+- Put sources and captures under `/workspace`, not `/tmp`: a sandbox recreated mid-export loses the capture HTML and the whole run must be rebuilt.
+
+Verification (`export_pack.py` exits 2 on any of these): fewer files than slides, size other than 3840x2160, a file under 50 KB, or a blank capture (pixel stddev under 1.5, which means the JS state never ran). Then confirm the PDF has N pages of 13.333" x 7.5" and the PPTX has N slides plus one note each. Read slide titles from `data-sec`, falling back to the slide heading; a parser that only looked at `h1` wrote wrong notes for slides that carry only `data-sec`.
+
+Delivery: `expose_sandbox_file` per file. Never `publish_generated_file` for a file that lives in the sandbox, and never `create_file`/`override_full_file` for binaries. Share the download URL, the slide count and the 16:9 page size. Use `.pptx`, not legacy `.ppt`.
+
+Causes seen in real runs:
+
+| Symptom | Real cause |
+|---|---|
+| `Permission denied` opening `index.html` | Project files are 600 and owned by uid 999: `ls` shows them, the sandbox user cannot read them, `chmod` is not allowed |
+| `Waiting for selector .slide` timeout | The HTTP server returned 404 (unreadable or wrong path), not a slow page |
+| `Cannot find package puppeteer-core` | The `.mjs` ran outside `/workspace`, so Node did not resolve the local `node_modules` |
+| `externally-managed-environment` | Global pip is blocked (PEP 668); use the venv |
+| Captures or source HTML vanish mid-run | Sandbox recreated; only rebuild the missing part |
+| Counter captured as `0` | Engine not run, so `data-count` never executed |
+| PDF stretched or margined | Page built as A4/letter instead of 13.333" x 7.5" |
+| Nav bar or black strip in captures | The interactive deck was captured without the chrome overlay |
+| Node 22 error on this path | Not this path's requirement: `export_slides.mjs` ran on Node 20.19.3 with `puppeteer-core`. The Node 22 rule applies to the `lib.js` browser-control scripts, which need native `WebSocket` |
+
+Measured run (Linux sandbox, Node 20.19.3, system Chrome, `neon-tech` deck with 15 slides, `--sec 4`):
+
+| Step | Result | Time |
+|---|---|---|
+| `export_slides.mjs` | 15 PNG at 3840x2160 plus `manifest.json` | 125.9 s |
+| `export_pack.py` | PDF 15 pages 16:9 (37.4 MB), PPTX 15 slides + 15 notes (37.5 MB), every capture > 2.3 MB | 8.4 s |
+| Failure path | `--html` unreadable/missing prints the real error code and exits 2 | - |
+
+### 8. Deliver
 
 Give the HTML or MP4 path, the template chosen, the final palette, a table of slides, what was verified and what the user must review by eye (including any approximate data).
 

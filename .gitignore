@@ -16,6 +16,8 @@ yt-test/
 docx-output/
 presentation-output/
 *.mp4
+*.pdf
+*.pptx
 *.mp3
 *.m4a
 *.webm
