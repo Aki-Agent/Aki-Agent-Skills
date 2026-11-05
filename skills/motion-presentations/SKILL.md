@@ -20,10 +20,35 @@ Do not use it for editable `.pptx` files or for decks the user will edit in an o
 | Task | Needs |
 |---|---|
 | Edit and present the HTML | A current browser (`color-mix()` support) |
-| `check.js`, `extract_palette.js`, `render.js` | Node 22+, Edge or Chrome |
+| `start_browser.js`, `check.js`, `close_browser.js`, `extract_palette.js`, `apply_brand.js`, `render.js` | Node 22+ |
+| `start_browser.js`, `check.js`, `extract_palette.js`, `render.js` | Edge or Chrome |
 | `render.js`, `qc_video.js` | ffmpeg and ffprobe on `PATH` |
 
-No npm packages. The scripts use Node's native `WebSocket` and `fetch`.
+No application npm packages. The browser-control scripts use Node's native `WebSocket` and `fetch`.
+
+### Node 20 vs Node 22 troubleshooting
+
+Check the runtime before starting the browser:
+
+```bash
+node --version
+node -p "'WebSocket=' + typeof WebSocket + ' fetch=' + typeof fetch"
+```
+
+The browser-control scripts require **Node 22 or newer**. A sandbox may default to Node 20; for example, Node 20.19.3 has `fetch` but no global `WebSocket`, so scripts that load `scripts/lib.js` stop with `Node 22+ is required (native WebSocket and fetch). Found v20.19.3.` This is a Node runtime mismatch, not a presentation, animation or browser failure. `verify_engine.js` is a static file check and does not load `lib.js`, so its success does not confirm the runtime is suitable for `check.js` or rendering.
+
+When `node --version` is below 22 or `WebSocket` is `undefined`, use an available Node 22+ binary. If `npx` and network access are available, `npx --yes node@22` provides a one-off Node 22 runner without adding an application dependency:
+
+```bash
+npx --yes node@22 --version
+npx --yes node@22 scripts/start_browser.js
+npx --yes node@22 scripts/check.js --html <output>/deck.html --sec 8
+npx --yes node@22 scripts/close_browser.js
+```
+
+Use the same Node 22 runner for `apply_brand.js`, `extract_palette.js` and `render.js`. If `npx` is unavailable or the network is blocked, invoke an already-installed Node 22+ executable (or activate it through the environment's version manager) and recheck that `WebSocket` is defined. Do not edit the runtime guard or polyfill `WebSocket` to hide this mismatch.
+
+If the runtime check passes but `start_browser.js` says no browser answered, that is a separate browser-discovery/launch issue: pass the actual executable with `--browser <path>` and confirm the debugging endpoint on the selected port (default `9333`) responds before running `check.js`.
 
 ## Templates
 
