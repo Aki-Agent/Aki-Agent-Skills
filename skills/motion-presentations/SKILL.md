@@ -64,6 +64,10 @@ If the runtime check passes but `start_browser.js` says no browser answered, tha
 | `templates/newspaper-front.html` | Broadsheet: masthead, columns, pull quotes, classifieds | News, case studies, announcements, community stories | 13 | `#991b1b` / `#1f2937` / `#b45309` |
 | `templates/data-dashboard.html` | App-style dark panels: KPIs, charts, heatmap, funnel, kanban | Metric reviews, quarterly reports, data-heavy talks | 14 | `#6366f1` / `#22d3ee` / `#f472b6` |
 | `templates/pop-comic.html` | Comic book: panels, speech bubbles, bursts, trading cards | Young audiences, social media, playful explainers | 12 | `#2563eb` / `#facc15` / `#ef4444` |
+| `templates/consulting-boardroom.html` | Consulting report: white pages, action titles, structured charts | Board meetings, strategy, business cases, recommendations | 11 | `#0b2e59` / `#00857c` / `#c8102e` |
+| `templates/swiss-minimal.html` | Swiss typographic style: huge type, grid, one strong color | Design-minded talks, principles, thought leadership | 12 | `#e30613` / `#111111` / `#8a8a8a` |
+| `templates/executive-luxe.html` | Deep tone with gold, framed pages, refined serif type | Premium proposals, finance, law, private clients | 12 | `#0f4c3a` / `#c9a227` / `#e8dcc4` |
+| `templates/saas-aurora.html` | Modern product page: aurora background, glass cards, app mockups | Product demos, sales decks, startups, pricing | 12 | `#7c3aed` / `#06b6d4` / `#f59e0b` |
 
 Choose by audience and tone, then tell the user which template you chose and why, in one line. If the request does not point to one, use `neon-tech` for technical topics and `editorial-light` for everything else. Slide text in the templates is sample content; its numbers are illustrative.
 
@@ -178,6 +182,10 @@ Reuse the components already in the chosen template: open a sample slide with th
 | `newspaper-front` | `.mast`, `.front`, `.ticker`, `.inside`, `.article` (columns with drop cap), `.facts`, `.pull`, `.chartbox`, `.wbar`, `.oped`, `.errata`, `.stamp`, `.ads` (classifieds), `.closing` |
 | `data-dashboard` | `.panel`, `.kpi`, `.delta`, `.spark`, `.bars`, `.tabs`, `.sec-ring`, `.linec` (line chart), `.stack100`, `.heat`, `.fnl` (funnel), `.lead-row` (ranking), `.alert`, `.kanban`, `.goalring` |
 | `pop-comic` | `.pnl`, `.bub` (speech and thought), `.rob`, `.hum`, `.burst`, `.band`, `.ep`, `.fight` (versus bars), `.tc` (trading cards), `.ednote`, `.act`, `.outro` |
+| `consulting-boardroom` | `.brief`, `.exec` (executive summary), `.tree` (issue tree), `.matrix` (2×2), `.wf` (waterfall), `.gantt` (roadmap), `.risk`, `.rag`, `.errnote`, `.ask` |
+| `swiss-minimal` | `.biglist`, `.blk`, `.state`, `.prop` (proportional circles), `.anat` (sentence anatomy), `.twocol`, `.ratio`, `.fix`, `.closing` |
+| `executive-luxe` | `.seal` (rotating), `.ledger`, `.orn`, `.pillars3`, `.versus`, `.vt` (vertical timeline), `.tiers`, `.q`, `.note-card`, `.invite`, `.outro` |
+| `saas-aurora` | `.glass`, `.browser` (app mockup), `.stepper`, `.bento`, `.wave`, `.hub` (connections), `.tgl` (before/after switch), `.strip`, `.wall` (reviews), `.plans`, `.toast`, `.btn` |
 
 Removing a `neon-tech` diagram slide is safe: its script skips missing elements. Timers in new code must use `setTimeout`, `setInterval`, `requestAnimationFrame` or `performance.now`, so the video render can control them; do not use Web Workers or `<video>`.
 
@@ -250,7 +258,7 @@ node scripts/check.js --html templates/editorial-light.html --sec 8
 node scripts/close_browser.js
 ```
 
-Expected: `ok` for all ten templates and `OK: 15 slides with no problems`.
+Expected: `ok` for all fourteen templates and `OK: 15 slides with no problems`.
 
 ## Measured runs
 
@@ -261,6 +269,7 @@ One run on Windows with Edge headless and ffmpeg 8.1:
 | `bold-blocks`, rebranded with a generated test logo, 13 slides × 3 s, 2560×1440 at 30 fps, `--crf 17` | 1170 frames, 39 s of video, 7.5 MB | 65.6 s (17.8 capture fps) |
 | `friendly-pastel`, default colors, same settings | 1170 frames, 39 s of video, 7.5 MB | 69.3 s (16.9 capture fps) |
 | `data-dashboard`, default colors, 14 slides × 3 s, same settings | 1260 frames, 42 s of video, 21.1 MB | 88.3 s (14.3 capture fps) |
+| `swiss-minimal`, default colors, 12 slides × 3 s, same settings | 1080 frames, 36 s of video, 5.2 MB | 71.5 s (15.1 capture fps) |
 
 Capture speed and file size depend on the machine and on the template's effects. Run `--frames 300` first to estimate a long render.
 
@@ -276,3 +285,7 @@ Capture speed and file size depend on the machine and on the template's effects.
 | `newspaper-front` | 3 | |
 | `data-dashboard` | 5 | Fails at 3 s: the last chart label appears at 2.4 s |
 | `pop-comic` | 3 | |
+| `consulting-boardroom` | 5 | Fails at 3 s: the waterfall's last labels appear at 2.5 s |
+| `swiss-minimal` | 5 | Fails at 3 s: the ratio note appears at 2.4 s |
+| `executive-luxe` | 3 | |
+| `saas-aurora` | 5 | Fails at 3 s: the mockup's last lines appear at 2.4–2.8 s |
