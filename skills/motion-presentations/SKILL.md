@@ -35,6 +35,10 @@ No npm packages. The scripts use Node's native `WebSocket` and `fetch`.
 | `templates/terminal-retro.html` | CRT console, monospace type, logs, diffs and code windows | Developers, cybersecurity, automation, how-things-work | 13 | `#22c55e` / `#f59e0b` / `#38bdf8` |
 | `templates/friendly-pastel.html` | Warm light background, rounded cards, mascot, chat bubbles, quiz | Beginners, education, everyday explainers, onboarding | 13 | `#4f46e5` / `#f97316` / `#14b8a6` |
 | `templates/cinematic-keynote.html` | Black letterbox, slow spotlight, large serif type, few words per slide | Keynotes, opinion pieces, narrated stories, vision talks | 13 | `#b91c1c` / `#e9c46a` / `#94a3b8` |
+| `templates/blueprint-schematic.html` | Engineering drawing: grid, line art, annotated diagrams, title blocks | How something works, architecture, processes, products | 13 | `#1d4ed8` / `#fbbf24` / `#93c5fd` |
+| `templates/newspaper-front.html` | Broadsheet: masthead, columns, pull quotes, classifieds | News, case studies, announcements, community stories | 13 | `#991b1b` / `#1f2937` / `#b45309` |
+| `templates/data-dashboard.html` | App-style dark panels: KPIs, charts, heatmap, funnel, kanban | Metric reviews, quarterly reports, data-heavy talks | 14 | `#6366f1` / `#22d3ee` / `#f472b6` |
+| `templates/pop-comic.html` | Comic book: panels, speech bubbles, bursts, trading cards | Young audiences, social media, playful explainers | 12 | `#2563eb` / `#facc15` / `#ef4444` |
 
 Choose by audience and tone, then tell the user which template you chose and why, in one line. If the request does not point to one, use `neon-tech` for technical topics and `editorial-light` for everything else. Slide text in the templates is sample content; its numbers are illustrative.
 
@@ -145,6 +149,10 @@ Reuse the components already in the chosen template: open a sample slide with th
 | `terminal-retro` | `.win`, `.ls`, `.ln` (log lines), `.diff`, `.split-num`, `.meter`, `.code`, `.ps` (table), `.badge`, `.todo`, `.closing` |
 | `friendly-pastel` | `.cover`, `.bot` (mascot), `.road`, `.big-blob`, `.chat`, `.trio`, `.compare`, `.rb`, `.steps`, `.dd`, `.sticky`, `.opts` (quiz), `.outro` |
 | `cinematic-keynote` | `.center`, `.rule`, `.chapters`, `.statement`, `.huge`, `.vsline`, `.thennow`, `.miles`, `.quote`, `.notice`, `.triad`, `.outro` |
+| `blueprint-schematic` | `.ink` (self-drawing SVG lines), `.titleblock`, `.index`, `.annot` (annotated diagram), `.exploded` (layers), `.pipe`, `.dim` (dimension lines), `.fault`, `.rev`, `.approval`, `.stamp`, `.closing` |
+| `newspaper-front` | `.mast`, `.front`, `.ticker`, `.inside`, `.article` (columns with drop cap), `.facts`, `.pull`, `.chartbox`, `.wbar`, `.oped`, `.errata`, `.stamp`, `.ads` (classifieds), `.closing` |
+| `data-dashboard` | `.panel`, `.kpi`, `.delta`, `.spark`, `.bars`, `.tabs`, `.sec-ring`, `.linec` (line chart), `.stack100`, `.heat`, `.fnl` (funnel), `.lead-row` (ranking), `.alert`, `.kanban`, `.goalring` |
+| `pop-comic` | `.pnl`, `.bub` (speech and thought), `.rob`, `.hum`, `.burst`, `.band`, `.ep`, `.fight` (versus bars), `.tc` (trading cards), `.ednote`, `.act`, `.outro` |
 
 Removing a `neon-tech` diagram slide is safe: its script skips missing elements. Timers in new code must use `setTimeout`, `setInterval`, `requestAnimationFrame` or `performance.now`, so the video render can control them; do not use Web Workers or `<video>`.
 
@@ -217,7 +225,7 @@ node scripts/check.js --html templates/editorial-light.html --sec 8
 node scripts/close_browser.js
 ```
 
-Expected: `ok` for all six templates and `OK: 15 slides with no problems`.
+Expected: `ok` for all ten templates and `OK: 15 slides with no problems`.
 
 ## Measured runs
 
@@ -227,6 +235,7 @@ One run on Windows with Edge headless and ffmpeg 8.1:
 |---|---|---|
 | `bold-blocks`, rebranded with a generated test logo, 13 slides × 3 s, 2560×1440 at 30 fps, `--crf 17` | 1170 frames, 39 s of video, 7.5 MB | 65.6 s (17.8 capture fps) |
 | `friendly-pastel`, default colors, same settings | 1170 frames, 39 s of video, 7.5 MB | 69.3 s (16.9 capture fps) |
+| `data-dashboard`, default colors, 14 slides × 3 s, same settings | 1260 frames, 42 s of video, 21.1 MB | 88.3 s (14.3 capture fps) |
 
 Capture speed and file size depend on the machine and on the template's effects. Run `--frames 300` first to estimate a long render.
 
@@ -238,3 +247,7 @@ Capture speed and file size depend on the machine and on the template's effects.
 | `terminal-retro` | 5 | Fails at 3 s: the last log line starts at 2.7 s |
 | `friendly-pastel` | 5 | Fails at 3 s: the quiz answer appears at 3 s |
 | `cinematic-keynote` | 3 | |
+| `blueprint-schematic` | 3 | |
+| `newspaper-front` | 3 | |
+| `data-dashboard` | 5 | Fails at 3 s: the last chart label appears at 2.4 s |
+| `pop-comic` | 3 | |
