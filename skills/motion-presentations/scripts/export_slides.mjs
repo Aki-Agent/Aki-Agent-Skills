@@ -62,7 +62,7 @@ const browser = await puppeteer.launch({
 
 const HIDE_CHROME = `
   html,body{margin:0;padding:0;width:1920px;height:1080px;overflow:hidden;background:#111827}
-  #stage{transform:none!important;width:1920px!important;height:1080px!important}
+  #stage{left:0!important;top:0!important;transform:none!important;width:1920px!important;height:1080px!important}
   #chrome,.hint,.nav,#dots,#counter,#progress,#fullscreen,.nav-btn,.controls,.btn-nav{display:none!important}
 `;
 
@@ -71,6 +71,16 @@ page.setDefaultTimeout(30000);
 await page.goto(`http://127.0.0.1:${PORT}/${path.basename(DECK)}`, { waitUntil: 'networkidle0', timeout: 30000 });
 await page.addStyleTag({ content: HIDE_CHROME });
 await page.waitForSelector('.slide');
+const stageRect = await page.evaluate(() => {
+  const r = document.getElementById('stage')?.getBoundingClientRect();
+  return r ? { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) } : null;
+});
+if (!stageRect) { console.error('error: #stage not found; the clip cannot be aligned'); await browser.close(); server.close(); process.exit(2); }
+if (stageRect.x !== 0 || stageRect.y !== 0 || stageRect.width !== 1920 || stageRect.height !== 1080) {
+  console.error(`error: #stage renders at (${stageRect.x}, ${stageRect.y}) with size ${stageRect.width}x${stageRect.height}; the clip expects (0,0) 1920x1080. Reset left/top, not only the transform, or keep an equivalent centering.`);
+  await browser.close(); server.close(); process.exit(2);
+}
+console.log(`stage ok: ${JSON.stringify(stageRect)}`);
 try { await page.evaluateHandle('document.fonts.ready'); } catch {}
 await new Promise((r) => setTimeout(r, 400));
 

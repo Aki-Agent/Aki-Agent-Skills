@@ -254,7 +254,7 @@ Why these choices:
 - **Drive navigation with the deck's own engine** (`window.go(i, true)`, detected by the script). A copy that only toggles `display` freezes every JS-rendered value at its start: in a real run a `data-count` slide captured `0` until the engine ran. Counters, typewriter text and canvas charts need the engine plus a full animation window.
 - `--sec` must be at least the `--sec` value `check.js` passes for that template, so animations finish before the shot.
 - Chrome flags `--no-sandbox --disable-gpu --disable-dev-shm-usage --font-render-hinting=none`; viewport 1920x1080 with `deviceScaleFactor: 2` -> 3840x2160 PNG. Wait `document.fonts.ready` plus 400 ms before the first capture, and screenshot with `clip: {x:0, y:0, width:1920, height:1080}` so no bar or margin leaks in.
-- Before exporting, force the stage scale to 1 (`#stage{transform:none!important}`, `html,body` 1920x1080) so the clip matches the stage, and hide `#chrome` (brand, counter, progress, hint), nav buttons, dots and fullscreen.
+- Before exporting, force the stage scale to 1 and align it to the clip origin: `#stage{left:0!important;top:0!important;transform:none!important}`, `html,body` 1920x1080. Resetting only the transform is not enough: the shared engine has `#stage{left:50%;top:50%}` and `fit()` centers it with `translate(-50%,-50%)`; without resetting `left/top`, the stage lands at (960,540) and the clip captures only part of the slide over background. The script verifies the stage bounding box is exactly (0,0) 1920x1080 after injecting the styles and exits 2 otherwise, so a misaligned run cannot pass silently. Also hide `#chrome` (brand, counter, progress, hint), nav buttons, dots and fullscreen.
 - Use `await new Promise(r => setTimeout(r, n))` between slides; `page.waitForTimeout` is not available.
 - Put sources and captures under `/workspace`, not `/tmp`: a sandbox recreated mid-export loses the capture HTML and the whole run must be rebuilt.
 
@@ -274,6 +274,7 @@ Causes seen in real runs:
 | Counter captured as `0` | Engine not run, so `data-count` never executed |
 | PDF stretched or margined | Page built as A4/letter instead of 13.333" x 7.5" |
 | Nav bar or black strip in captures | The interactive deck was captured without the chrome overlay |
+| Capture is mostly background with content in one corner | Only the transform was cleared; `#stage` keeps `left:50%/top:50%` (the exit looked fine: 3840x2160 PNGs, exit 0) | Reset `left/top` alongside the transform and check the stage rect before capturing; `export_slides.mjs` now exits 2 if the stage is not at (0,0) 1920x1080 |
 | Node 22 error on this path | Not this path's requirement: `export_slides.mjs` ran on Node 20.19.3 with `puppeteer-core`. The Node 22 rule applies to the `lib.js` browser-control scripts, which need native `WebSocket` |
 
 Measured run (Linux sandbox, Node 20.19.3, system Chrome, `neon-tech` deck with 15 slides, `--sec 4`):
