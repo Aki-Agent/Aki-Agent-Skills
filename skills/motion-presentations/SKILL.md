@@ -23,8 +23,8 @@ Do not use it for editable `.pptx` files or for decks the user will edit in an o
 | `start_browser.js`, `check.js`, `close_browser.js`, `extract_palette.js`, `apply_brand.js`, `render.js` | Node 22+ |
 | `start_browser.js`, `check.js`, `extract_palette.js`, `render.js` | Edge or Chrome |
 | `render.js`, `qc_video.js` | ffmpeg and ffprobe on `PATH` |
-| `export_slides.mjs` | `puppeteer-core` + Chrome (`/usr/bin/google-chrome`), Node 18+ |
-| `export_pack.py` | `pillow`, `img2pdf`, `python-pptx` inside a venv |
+| `export_slides.mjs` | Chrome (`/usr/bin/google-chrome`) + `puppeteer-core`, Node 18+; `puppeteer-core` is bootstrapped on every run |
+| `export_pack.py` | `pillow`, `img2pdf`, `python-pptx`; bootstrapped on every run, global pip needs the venv (PEP 668) |
 
 No application npm packages. The browser-control scripts use Node's native `WebSocket` and `fetch`.
 
@@ -238,15 +238,13 @@ The render replaces timers, `requestAnimationFrame`, `performance.now`, `Date.no
 Capture each slide as an image and mount it page by page. Do not rebuild the layout with native PowerPoint shapes: fidelity wins over editability. Generate only the format the user asked for, and say in the delivery that the PPTX keeps the design but its text is not editable.
 
 ```bash
-python3 -m venv /workspace/.venv            # global pip fails: PEP 668 externally-managed-environment
-/workspace/.venv/bin/pip install pillow img2pdf python-pptx
-npm init -y && npm install --silent puppeteer-core
-
 node scripts/export_slides.mjs --html /workspace/deck.html \
   --out /workspace/.cache/motion-presentations/export --sec 4
-/workspace/.venv/bin/python scripts/export_pack.py \
+python3 scripts/export_pack.py \
   --manifest /workspace/.cache/motion-presentations/export/manifest.json --name Deck-Title
 ```
+
+Both scripts bootstrap their dependencies on every run (idempotent), so a recreated sandbox needs no manual setup: `export_slides.mjs` installs `puppeteer-core` under `/workspace/.cache/motion-presentations/node` when missing; `export_pack.py` builds `/workspace/.venv` and re-execs itself under it when an import fails (global pip is blocked by PEP 668).
 
 Why these choices:
 
@@ -258,7 +256,7 @@ Why these choices:
 - Use `await new Promise(r => setTimeout(r, n))` between slides; `page.waitForTimeout` is not available.
 - Put sources and captures under `/workspace`, not `/tmp`: a sandbox recreated mid-export loses the capture HTML and the whole run must be rebuilt.
 
-Verification (`export_pack.py` exits 2 on any of these): fewer files than slides, size other than 3840x2160, a file under 50 KB, or a blank capture (pixel stddev under 1.5, which means the JS state never ran). Then confirm the PDF has N pages of 13.333" x 7.5" and the PPTX has N slides plus one note each. Read slide titles from `data-sec`, falling back to the slide heading; a parser that only looked at `h1` wrote wrong notes for slides that carry only `data-sec`.
+Verification (`export_pack.py` exits 2 on any of these): file count different from the `slides` the manifest declares (a truncated or stale manifest must not be delivered as a partial export), a file size other than 3840x2160, a file under 50 KB, or a blank capture (pixel stddev under 1.5, which means the JS state never ran). Then confirm the PDF has N pages of 13.333" x 7.5" and the PPTX has N slides plus one note each. Read slide titles from `data-sec`, falling back to the slide heading; a parser that only looked at `h1` wrote wrong notes for slides that carry only `data-sec`.
 
 Delivery: `expose_sandbox_file` per file. Never `publish_generated_file` for a file that lives in the sandbox, and never `create_file`/`override_full_file` for binaries. Share the download URL, the slide count and the 16:9 page size. Use `.pptx`, not legacy `.ppt`.
 
@@ -268,10 +266,11 @@ Causes seen in real runs:
 |---|---|
 | `Permission denied` opening `index.html` | Project files are 600 and owned by uid 999: `ls` shows them, the sandbox user cannot read them, `chmod` is not allowed |
 | `Waiting for selector .slide` timeout | The HTTP server returned 404 (unreadable or wrong path), not a slow page |
-| `Cannot find package puppeteer-core` | The `.mjs` ran outside `/workspace`, so Node did not resolve the local `node_modules` |
+| `Cannot find package puppeteer-core` | Clean sandbox without the package; the script now bootstraps it on every run (it also failed when the `.mjs` ran outside any `node_modules` ancestor) |
 | `externally-managed-environment` | Global pip is blocked (PEP 668); use the venv |
 | Captures or source HTML vanish mid-run | Sandbox recreated; only rebuild the missing part |
 | Counter captured as `0` | Engine not run, so `data-count` never executed |
+| Partial PDF/PPTX delivered with exit 0 | Manifest count not verified against `files`; `export_pack.py` now rejects the mismatch before building anything |
 | PDF stretched or margined | Page built as A4/letter instead of 13.333" x 7.5" |
 | Nav bar or black strip in captures | The interactive deck was captured without the chrome overlay |
 | Capture is mostly background with content in one corner | Only the transform was cleared; `#stage` keeps `left:50%/top:50%` (the exit looked fine: 3840x2160 PNGs, exit 0) | Reset `left/top` alongside the transform and check the stage rect before capturing; `export_slides.mjs` now exits 2 if the stage is not at (0,0) 1920x1080 |
@@ -283,7 +282,10 @@ Measured run (Linux sandbox, Node 20.19.3, system Chrome, `neon-tech` deck with 
 |---|---|---|
 | `export_slides.mjs` | 15 PNG at 3840x2160 plus `manifest.json` | 125.9 s |
 | `export_pack.py` | PDF 15 pages 16:9 (37.4 MB), PPTX 15 slides + 15 notes (37.5 MB), every capture > 2.3 MB | 8.4 s |
-| Failure path | `--html` unreadable/missing prints the real error code and exits 2 | - |
+| Failure paths | Missing `--html` exits 2 in 42 ms, before Chrome starts (`path.resolve('')` would resolve to the CWD, so the flag is validated before resolving); a truncated manifest (`slides: 15`, 1 file entry) exits 2 before building any output | - |
+| Clean-sandbox bootstrap (`node_modules` and venv removed) | Export bootstrapped `puppeteer-core` (12 s npm) and captured; pack bootstrapped the venv and built both outputs | export 41.8 s; pack 9.9 s cold, 2.0 s warm |
+
+Bootstrap run detail (clean sandbox, `editorial-light.html`, 15 slides, `--sec 1`): stage verified at (0,0) 1920x1080 before capture, 15 PNG 3840x2160, stddev 22.1-55, PDF 15 pages, PPTX 15 slides + notes.
 
 ### 8. Deliver
 

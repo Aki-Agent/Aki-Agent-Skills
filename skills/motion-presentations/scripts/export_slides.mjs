@@ -1,18 +1,21 @@
 #!/usr/bin/env node
 /*
-  Captura cada .slide como PNG full-bleed y escribe un manifest JSON.
-  Servea el deck por HTTP (file:// no funciona bien con fuentes y CORS) y
-  maneja la navegacion con el engine del deck, para que los valores escritos
-  por JS (counters, typewriter, canvas) terminen de animarse antes del shot.
+  Captures each .slide as a full-bleed PNG and writes a manifest JSON.
+  Serves the deck over HTTP (file:// is unreliable for fonts and CORS) and
+  drives navigation through the deck's own engine so that values written by
+  JS (counters, typewriter, canvas) finish animating before the shot.
 
-  Uso:
+  Usage:
     node scripts/export_slides.mjs --html /workspace/deck.html \
       --out /workspace/.cache/motion-presentations/export --sec 4
 
-  Flags: --sec segundos por slide (usar el valor de check.js de la template),
-  --port 8777, --browser /usr/bin/google-chrome, --scale 2.
+  Flags: --sec seconds per slide (use the value check.js passes for that
+  template), --port 8777, --browser /usr/bin/google-chrome, --scale 2.
+  Dependencies are bootstrapped on every run (idempotent), so a recreated
+  sandbox works without manual npm install.
 */
-import puppeteer from 'puppeteer-core';
+import { execFileSync } from 'child_process';
+import { createRequire } from 'module';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -23,15 +26,22 @@ const flag = (name, dflt) => {
   return i >= 0 ? argv[i + 1] : dflt;
 };
 
-const DECK = path.resolve(flag('html', ''));
+// Validate the flag before resolving: path.resolve('') would turn a missing
+// --html into the current directory and fail later with a slow timeout.
+const HTML_RAW = flag('html', '');
+if (!HTML_RAW) {
+  console.error('error: --html <deck.html> is required');
+  process.exit(2);
+}
+const DECK = path.resolve(HTML_RAW);
 const ROOT = path.dirname(DECK);
 const OUT = path.resolve(flag('out', '/workspace/.cache/motion-presentations/export'));
 const PORT = Number(flag('port', 8777));
 const SEC = Number(flag('sec', 4));
 const SCALE = Number(flag('scale', 2));
 const BROWSER = flag('browser', '/usr/bin/google-chrome');
+const BOOTSTRAP_DIR = flag('bootstrap-dir', '/workspace/.cache/motion-presentations/node');
 
-if (!DECK) { console.error('error: --html <deck.html> is required'); process.exit(2); }
 try { fs.accessSync(DECK, fs.constants.R); }
 catch (e) {
   console.error(`error: cannot read ${DECK} (${e.code}). Project-file tools can list it (uid 999, mode 600) while the sandbox user cannot open it, and chmod on those files is not permitted. Read it with the project file tools and copy the deck into /workspace, then rerun.`);
@@ -39,6 +49,20 @@ catch (e) {
 }
 if (!fs.existsSync(BROWSER)) { console.error(`error: browser not found at ${BROWSER}. Pass --browser <path>.`); process.exit(2); }
 fs.mkdirSync(OUT, { recursive: true });
+
+async function loadPuppeteer() {
+  try {
+    return (await import('puppeteer-core')).default;
+  } catch (e) {
+    if (!String(e.message).includes("Cannot find package 'puppeteer-core'")) throw e;
+    fs.mkdirSync(BOOTSTRAP_DIR, { recursive: true });
+    console.log(`puppeteer-core not found: bootstrapping in ${BOOTSTRAP_DIR}`);
+    execFileSync('npm', ['install', '--no-save', '--no-package-lock', 'puppeteer-core'], { cwd: BOOTSTRAP_DIR, stdio: 'inherit' });
+    const pkg = createRequire(path.join(BOOTSTRAP_DIR, 'noop.js')).resolve('puppeteer-core');
+    return (await import('file://' + pkg)).default;
+  }
+}
+const puppeteer = await loadPuppeteer();
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
 const server = http.createServer((req, res) => {

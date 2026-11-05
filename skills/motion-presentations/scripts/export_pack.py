@@ -1,17 +1,43 @@
 #!/usr/bin/env python3
 """
-Verifica las capturas y arma el PDF y el PPTX a partir del manifest de
-export_slides.mjs. No redibuja layouts nativos: una captura = una pagina.
+Verifies the captures and builds the PDF and the PPTX from the manifest written
+by export_slides.mjs. It does not rebuild layouts with native shapes: one
+capture = one page.
 
-Uso:
+Usage:
   python scripts/export_pack.py --manifest /workspace/.cache/motion-presentations/export/manifest.json \
     --name Deck-Title
 
-Dependencias (venv, porque pip global esta bloqueado por PEP 668):
-  python3 -m venv /workspace/.venv && /workspace/.venv/bin/pip install pillow img2pdf python-pptx
+Dependencies are bootstrapped on every run (idempotent): pillow, img2pdf and
+python-pptx. Global pip is blocked by PEP 668, so the script creates
+/workspace/.venv, installs there and re-execs itself under that venv when an
+import fails.
 """
-import argparse, json, sys
+import argparse, json, os, subprocess, sys
 from pathlib import Path
+
+VENV = Path("/workspace/.venv")
+
+def bootstrap():
+    if os.environ.get("MP_PACK_BOOTSTRAPPED"):
+        return
+    try:
+        import img2pdf  # noqa: F401
+        from PIL import Image  # noqa: F401
+        from pptx import Presentation  # noqa: F401
+    except ImportError as e:
+        print(f"dependency not found ({e.name}); bootstrapping venv {VENV}")
+        if not VENV.exists():
+            subprocess.check_call([sys.executable, "-m", "venv", str(VENV)])
+        subprocess.check_call([str(VENV / "bin" / "pip"), "install", "--quiet",
+                               "pillow", "img2pdf", "python-pptx"])
+        os.environ["MP_PACK_BOOTSTRAPPED"] = "1"
+        os.execv(str(VENV / "bin" / "python"), [str(VENV / "bin" / "python")] + sys.argv)
+    except Exception as e:
+        print(f"error: bootstrap failed: {e}")
+        sys.exit(2)
+
+bootstrap()
 
 import img2pdf
 from PIL import Image, ImageStat
@@ -29,7 +55,7 @@ ap.add_argument("--manifest", required=True)
 ap.add_argument("--name", default="presentation")
 ap.add_argument("--pptx", action="store_true", default=True)
 ap.add_argument("--no-pptx", dest="pptx", action="store_false")
-ap.add_argument("--no-pdf", dest="pdf", action="store_false", default=True)
+ap.add_argument("--no-pdf", dest="pdf", action="store_false")
 ap.add_argument("--skip-vda", action="store_true", help="accept 1920x1080 captures when deviceScaleFactor 2 was not possible")
 a = ap.parse_args()
 
@@ -37,6 +63,10 @@ mf = json.loads(Path(a.manifest).read_text(encoding="utf-8"))
 files = [Path(f["png"]) for f in mf["files"]]
 expected = (int(mf["width"]), int(mf["height"]))
 if not files: fail("manifest has no captures")
+# A truncated or stale manifest must not pass: verify the declared count against
+# the entries before building anything.
+if int(mf["slides"]) != len(files):
+    fail(f"manifest declares {mf['slides']} slides but has {len(files)} captures")
 
 report = []
 for p in files:
@@ -67,7 +97,7 @@ if a.pptx:
         slide = prs.slides.add_slide(blank)
         slide.shapes.add_picture(str(f), Emu(0), Emu(0), width=prs.slide_width, height=prs.slide_height)
         note = slide.notes_slide.notes_text_frame
-        note.text = f"Slide {item['n']}: {(item['data_sec'] or item['title'] or f'Diapositiva {item["n"]}')}".strip()
+        note.text = f"Slide {item['n']}: {(item['data_sec'] or item['title'] or f'Slide {item['n']}')}".strip()
     prs.save(str(pptx_path))
 
 summary = {
