@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en" data-surface="light" data-text-colors="primary secondary">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sample · Read an AI paper in 15 minutes</title>
+<style>
+/* THEME:BEGIN - the three brand colors; --on-* is the readable text color on each one. Set with scripts/apply_brand.js */
+:root{--primary:#8c1515;--secondary:#1f5aa6;--tertiary:#f7e463;--on-primary:#ffffff;--on-secondary:#ffffff;--on-tertiary:#0f1115}
+/* THEME:END */
+</style>
+<style>
+/* ENGINE-CSS:BEGIN - shared by every template. Do not edit: stage, chrome, controls and entrance animations. */
+:root{--ease:cubic-bezier(.2,.8,.2,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg0);color:var(--text);font-family:var(--font)}
+body{cursor:default;-webkit-font-smoothing:antialiased}
+
+/* Stage: fixed 1920x1080, scaled by fit() */
+#stage{position:absolute;left:50%;top:50%;width:1920px;height:1080px;transform-origin:center;z-index:5}
+.slide{position:absolute;inset:0;padding:150px 150px 120px;display:flex;flex-direction:column;justify-content:center;
+  opacity:0;visibility:hidden;transform:scale(1.05);filter:blur(12px);
+  transition:opacity .7s var(--ease),transform 1s var(--ease),filter .7s var(--ease),visibility 0s linear 1s}
+.slide.past{transform:scale(.95)}
+.slide.active{opacity:1;visibility:visible;transform:none;filter:none;transition-delay:.15s,.15s,.15s,0s}
+
+/* Chrome */
+#chrome{position:absolute;inset:0;pointer-events:none;z-index:20;transition:opacity .4s}
+#chrome.hide{opacity:0}
+.brand{position:absolute;left:70px;top:54px;display:flex;align-items:center;gap:18px}
+.brand img{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 0 14px color-mix(in srgb,var(--secondary) 55%,transparent))}
+.brand .t{font-size:17px;letter-spacing:.32em;font-weight:600;color:var(--soft);text-transform:uppercase}
+.brand .sep{width:1px;height:26px;background:var(--line)}
+.brand .sec{font-size:17px;letter-spacing:.18em;color:var(--accent-text);text-transform:uppercase;font-weight:600;transition:opacity .3s}
+.counter{position:absolute;right:70px;top:58px;font-family:var(--mono);font-size:20px;color:var(--muted);letter-spacing:.1em}
+.counter b{color:var(--text);font-weight:600}
+.progress{position:absolute;left:70px;right:70px;bottom:50px;height:3px;background:var(--track);border-radius:3px;overflow:hidden}
+.progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--primary),var(--secondary));box-shadow:0 0 14px var(--secondary);transition:width .8s var(--ease)}
+.hint{position:absolute;right:70px;bottom:68px;font-size:14px;color:var(--muted);opacity:.7;letter-spacing:.08em}
+
+/* Previous / next buttons (built by the engine script, hidden in video capture) */
+#nav{position:absolute;left:50%;bottom:66px;transform:translateX(-50%);display:flex;gap:14px}
+#nav button{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;cursor:pointer;pointer-events:auto;
+  color:var(--text);background:var(--track);border:1px solid var(--line);transition:background .2s,color .2s,opacity .2s}
+#nav button:hover:not(:disabled){background:var(--primary);color:var(--on-primary)}
+#nav button:focus-visible{outline:2px solid var(--secondary);outline-offset:3px}
+#nav button:disabled{opacity:.3;cursor:default}
+#nav svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+#chrome.hide #nav button{pointer-events:none}
+.capture #nav{display:none}
+
+/* Section wipe */
+#wipe{position:absolute;inset:-10% -30%;z-index:30;pointer-events:none;transform:translateX(-120%) skewX(-18deg);
+  background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--primary) 0%,transparent) 5%,var(--primary) 25%,var(--secondary) 50%,#fff 52%,var(--primary) 60%,color-mix(in srgb,var(--primary) 0%,transparent) 95%,transparent)}
+#wipe.go{animation:wipe 1.1s cubic-bezier(.7,0,.3,1) forwards}
+@keyframes wipe{0%{transform:translateX(-120%) skewX(-18deg)}100%{transform:translateX(120%) skewX(-18deg)}}
+
+/* Entrance animations */
+.r{opacity:0}
+.slide.active .r{animation:var(--a,up) 1s var(--ease) both;animation-delay:var(--d,0s)}
+.r.l{--a:fromL}.r.rt{--a:fromR}.r.s{--a:pop}.r.b{--a:blurIn}.r.w{--a:wipeIn}.r.dn{--a:down}
+@keyframes up{from{opacity:0;transform:translateY(50px);filter:blur(8px)}to{opacity:1;transform:none;filter:none}}
+@keyframes down{from{opacity:0;transform:translateY(-40px);filter:blur(8px)}to{opacity:1;transform:none;filter:none}}
+@keyframes fromL{from{opacity:0;transform:translateX(-80px);filter:blur(8px)}to{opacity:1;transform:none;filter:none}}
+@keyframes fromR{from{opacity:0;transform:translateX(80px);filter:blur(8px)}to{opacity:1;transform:none;filter:none}}
+@keyframes pop{0%{opacity:0;transform:scale(.6)}60%{opacity:1;transform:scale(1.06)}100%{opacity:1;transform:none}}
+@keyframes blurIn{from{opacity:0;filter:blur(24px);transform:scale(1.15)}to{opacity:1;filter:none;transform:none}}
+@keyframes wipeIn{from{opacity:1;clip-path:inset(0 100% 0 0)}to{opacity:1;clip-path:inset(0 0 0 0)}}
+.split .ch{display:inline-block;opacity:0;white-space:pre}
+.slide.active .split .ch{animation:chIn .8s var(--ease) both;animation-delay:calc(var(--sd,.2s) + var(--i) * .035s)}
+@keyframes chIn{from{opacity:0;transform:translateY(.6em) rotateX(-80deg);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
+/* ENGINE-CSS:END */
+</style>
+<style>
+/* DESIGN-CSS - look of this template, derived from the theme colors. Slides may add components here. */
+:root{
+  --font:Cambria,"Latin Modern Roman","Computer Modern Serif","Times New Roman",serif;
+  --hand:"Ink Free","Segoe Print","Bradley Hand",cursive;
+  --sans:"Segoe UI",Arial,sans-serif;
+  --mono:"Cascadia Code","Cascadia Mono",Consolas,monospace;
+  --bg0:#fdfcf8;--text:#1c1b19;--soft:#3b3934;--muted:#6a665d;
+  --accent-text:var(--primary);--line:rgba(0,0,0,.2);--track:rgba(0,0,0,.08);
+}
+
+/* ---------- Background: paper with a faint baseline grid and a margin rule ---------- */
+#bg{position:fixed;inset:0;z-index:0;background:repeating-linear-gradient(180deg,transparent 0 3.9vh,rgba(31,90,166,.05) 3.9vh 4vh),var(--bg0)}
+#margin{position:fixed;z-index:1;pointer-events:none;top:0;bottom:0;left:5.2vw;border-left:2px solid color-mix(in srgb,var(--primary) 30%,transparent)}
+#scan{position:fixed;z-index:1;pointer-events:none;left:0;right:0;height:16vh;top:-16vh;background:linear-gradient(180deg,transparent,rgba(247,228,99,.10),transparent);animation:scanp 14s linear infinite}
+@keyframes scanp{to{transform:translateY(132vh)}}
+
+/* ---------- Typography ---------- */
+.slide{font-family:var(--font)}
+h1{font-size:104px;line-height:1.05;font-weight:700}
+h2{font-size:60px;line-height:1.12;font-weight:700;margin-bottom:36px;max-width:1450px}
+.sc{font-variant:small-caps;letter-spacing:.06em}
+.red{color:var(--accent-text)}.blue{color:var(--secondary)}
+.kick{font-family:var(--sans);font-size:22px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:22px}
+.lead{font-size:34px;line-height:1.45;color:var(--soft);max-width:820px}
+.note{font-family:var(--sans);margin-top:22px;font-size:20px;color:var(--muted)}
+
+/* ---------- Highlighter ---------- */
+.hl{background:linear-gradient(transparent 12%,color-mix(in srgb,var(--tertiary) 85%,transparent) 12% 88%,transparent 88%) no-repeat 0 0/0% 100%;box-decoration-break:clone;-webkit-box-decoration-break:clone;padding:0 .08em}
+.slide.active .hl{animation:hl .7s ease-out forwards;animation-delay:var(--hd,.8s)}
+@keyframes hl{to{background-size:100% 100%}}
+
+/* ---------- Paper header (specimen) ---------- */
+.cover{display:grid;grid-template-columns:1fr 680px;gap:70px;align-items:center}
+.sheet{background:#fff;box-shadow:0 20px 50px rgba(0,0,0,.14),0 0 0 1px rgba(0,0,0,.06);padding:46px 52px;rotate:2deg}
+.sheet .pre{font-family:var(--sans);font-size:16px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;display:flex;justify-content:space-between}
+.sheet .tt{font-size:40px;line-height:1.15;font-weight:700;text-align:center;margin:22px 0 14px}
+.sheet .au{font-size:20px;text-align:center;color:var(--soft)}
+.sheet .af{font-size:16px;text-align:center;color:var(--muted);margin-top:4px}
+.sheet .abs{margin-top:22px;font-size:17px;line-height:1.45;text-align:justify;color:var(--soft)}
+.sheet .abs b{font-variant:small-caps}
+.sheet .lines{margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px 30px}
+.sheet .lines i{display:block;height:9px;background:var(--track)}
+
+/* ---------- Anatomy / reading order ---------- */
+.anatomy{display:grid;grid-template-columns:560px 1fr;gap:80px;align-items:center}
+.page{background:#fff;box-shadow:0 14px 36px rgba(0,0,0,.12),0 0 0 1px rgba(0,0,0,.06);padding:30px 34px;display:grid;gap:12px}
+.blk{position:relative;border:2px solid var(--line);padding:12px 16px;font-family:var(--sans);font-size:20px;color:var(--muted)}
+.blk.on{border-color:var(--primary);color:var(--text);background:color-mix(in srgb,var(--primary) 5%,#fff)}
+.blk .badge{position:absolute;right:-22px;top:50%;margin-top:-22px;width:44px;height:44px;border-radius:50%;background:var(--primary);color:var(--on-primary);display:grid;place-items:center;font-family:var(--font);font-weight:700;font-size:24px;scale:0}
+.slide.active .blk .badge{animation:badge .4s cubic-bezier(.3,1.6,.5,1) forwards;animation-delay:var(--bd)}
+@keyframes badge{to{scale:1}}
+.blk.tall{height:110px}
+.order{list-style:none;display:grid;gap:26px}
+.order li{display:grid;grid-template-columns:70px 1fr;gap:16px;align-items:baseline}
+.order .n{font-size:54px;font-weight:700;color:var(--accent-text);line-height:1}
+.order .t{font-size:42px;font-weight:700;line-height:1.1}
+.order .s{font-family:var(--sans);font-size:24px;color:var(--muted);margin-top:4px}
+
+/* ---------- Section ---------- */
+.section .para{position:absolute;right:200px;top:50%;margin-top:-260px;font-size:440px;line-height:1;font-weight:700;color:var(--primary)}
+.slide.active .para{animation:paraIn 1s var(--ease) both}
+@keyframes paraIn{from{opacity:0;transform:translateY(40px) rotate(-6deg)}to{opacity:1;transform:none}}
+.sec-title{font-size:100px;line-height:1.06;font-weight:700;max-width:1050px}
+.sec-sub{font-size:34px;font-style:italic;color:var(--soft);margin-top:26px;max-width:950px}
+
+/* ---------- Abstract with margin notes ---------- */
+.absbox{position:relative;max-width:1180px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.08);padding:40px 50px}
+.absbox .ah{font-variant:small-caps;font-weight:700;font-size:30px;text-align:center;letter-spacing:.08em;margin-bottom:16px}
+.absbox p{font-size:31px;line-height:1.55;text-align:justify;color:var(--soft);hyphens:auto}
+.mnotes{position:absolute;left:calc(100% + 40px);top:0;bottom:0;width:360px}
+.mn{position:absolute;left:0;font-family:var(--hand);font-size:30px;line-height:1.2;color:var(--secondary)}
+.mn::before{content:"";position:absolute;right:calc(100% + 8px);top:18px;width:70px;border-top:3px solid var(--secondary)}
+
+/* ---------- Figure ---------- */
+.figwrap{display:grid;grid-template-columns:1100px 1fr;gap:50px;align-items:center}
+.fig{background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.08);padding:26px 30px 20px}
+.fig svg{display:block}
+.ax{stroke:var(--text);stroke-width:2;fill:none}
+.gl{stroke:var(--track);stroke-width:2}
+.tk{font-family:var(--font);font-size:22px;fill:var(--soft)}
+.ln{fill:none;stroke-width:5;stroke-linecap:round;stroke-dasharray:1200;stroke-dashoffset:1200}
+.ln.a{stroke:var(--primary)}.ln.b{stroke:var(--muted);stroke-dasharray:1200;stroke-width:4}
+.slide.active .ln{animation:drawL 1.3s ease-in-out forwards;animation-delay:var(--ld,.5s)}
+@keyframes drawL{to{stroke-dashoffset:0}}
+.eb{stroke-width:3;opacity:0}.eb.a{stroke:var(--primary)}.eb.b{stroke:var(--muted)}
+.pt{opacity:0}.pt.a{fill:var(--primary)}.pt.b{fill:#fff;stroke:var(--muted);stroke-width:3}
+.slide.active .eb,.slide.active .pt{animation:fadeIn .4s ease-out forwards;animation-delay:var(--ld,1.6s)}
+@keyframes fadeIn{to{opacity:1}}
+.cap{font-size:24px;line-height:1.4;color:var(--soft);margin-top:12px}
+.cap b{font-weight:700}
+.side-note{font-family:var(--hand);font-size:34px;line-height:1.25;color:var(--secondary)}
+
+/* ---------- Booktabs table ---------- */
+.bt{border-collapse:collapse;font-size:36px;min-width:1250px}
+.bt caption{caption-side:top;text-align:left;font-size:26px;color:var(--soft);padding-bottom:14px}
+.bt th,.bt td{padding:16px 30px;text-align:right}
+.bt th:first-child,.bt td:first-child{text-align:left}
+.bt thead tr{border-top:4px solid var(--text);border-bottom:2px solid var(--text)}
+.bt tbody tr:last-child{border-bottom:4px solid var(--text)}
+.bt th{font-weight:700}
+.bt .ours{background:color-mix(in srgb,var(--tertiary) 35%,transparent)}
+.bt .best{font-weight:700;color:var(--accent-text)}
+.bt .dim2{color:var(--muted)}
+
+/* ---------- Equation ---------- */
+.eqn{display:flex;align-items:flex-start;gap:30px;font-size:76px;font-style:italic;max-width:1550px}
+.eqn .term{display:flex;flex-direction:column;align-items:center}
+.eqn .op{font-style:normal;color:var(--muted)}
+.eqn .br{width:100%;height:20px;border:3px solid var(--secondary);border-top:0;margin-top:10px;clip-path:inset(0 100% 0 0)}
+.slide.active .eqn .br{animation:brIn .5s ease-out forwards;animation-delay:var(--bd)}
+@keyframes brIn{to{clip-path:inset(0 0 0 0)}}
+.eqn .tr{font-family:var(--hand);font-style:normal;font-size:28px;color:var(--secondary);margin-top:10px;text-align:center;max-width:300px;line-height:1.2}
+.eqn .no{margin-left:auto;font-style:normal;color:var(--muted);font-size:48px;padding-top:14px}
+.plain{margin-top:50px;font-size:40px;line-height:1.4;max-width:1300px}
+.plain b{color:var(--accent-text)}
+
+/* ---------- Citation chip and reference card ---------- */
+.quote{font-size:40px;line-height:1.55;max-width:1300px;color:var(--soft);border-left:6px solid var(--line);padding-left:36px}
+.cite{display:inline-block;color:var(--secondary);font-weight:700}
+.refcard{margin-top:36px;margin-left:36px;max-width:1050px;background:#fff;box-shadow:0 10px 30px rgba(0,0,0,.12),0 0 0 1px rgba(0,0,0,.06);padding:22px 30px;font-size:26px;line-height:1.45;border-left:8px solid var(--secondary);transform-origin:0 0}
+.refcard b{color:var(--secondary)}
+.handnote{font-family:var(--hand);font-size:34px;color:var(--primary);margin-top:30px;margin-left:36px}
+
+/* ---------- Erratum ---------- */
+.erratum{max-width:1400px;background:#fff;box-shadow:0 0 0 2px var(--primary);padding:40px 50px}
+.erratum .eh{font-variant:small-caps;font-weight:700;font-size:40px;color:var(--accent-text);letter-spacing:.06em;margin-bottom:16px}
+.erratum .msg{font-size:36px;line-height:1.5;color:var(--soft)}
+.pair{display:flex;gap:34px;align-items:baseline;margin-top:36px;font-size:58px;font-weight:700}
+.strike{position:relative;display:inline-block;color:var(--muted)}
+.strike::after{content:"";position:absolute;left:-2%;top:56%;height:5px;width:0;background:var(--primary)}
+.slide.active .strike::after{animation:strike .6s ease-out forwards;animation-delay:var(--sk,1.4s)}
+@keyframes strike{to{width:104%}}
+
+/* ---------- References closing ---------- */
+.refs{list-style:none;font-size:32px;line-height:1.5;max-width:1300px;margin-top:30px}
+.refs li{display:grid;grid-template-columns:70px 1fr;padding:8px 0}
+.refs .k{color:var(--muted)}
+.closing .lg{width:96px;height:96px;object-fit:contain;margin-bottom:26px}
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<div id="margin"></div><div id="scan"></div>
+
+<div id="stage">
+<div id="chrome">
+  <div class="brand"><img class="logo-img" alt="logo"><span class="t">Your title</span><span class="sep"></span><span class="sec" id="secName"></span></div>
+  <div class="counter"><b id="cur">01</b> / <span id="tot">00</span></div>
+  <div class="progress"><i id="prog"></i></div>
+  <div class="hint">← → navigate · F fullscreen · H hide interface</div>
+</div>
+<div id="wipe"></div>
+
+<!-- SLIDES:BEGIN - replace the slide sections below with your content -->
+<!-- 1 · Cover -->
+<section class="slide" data-sec="Intro">
+  <div class="cover">
+    <div>
+      <div class="kick r">Sample content · Reading AI research</div>
+      <h1 class="r" style="--d:.2s">Read an AI paper in <span class="hl" style="--hd:1s">15 minutes</span></h1>
+      <p class="lead r" style="--d:.6s;margin-top:34px">You don't need a PhD. You need to know where to look, and what to skip.</p>
+    </div>
+    <div class="sheet r b" style="--d:.3s">
+      <div class="pre"><span>Preprint · fictional example</span><span>v1</span></div>
+      <div class="tt">Small Models Can Check Their Own Answers</div>
+      <div class="au">A. Rivera<sup>1</sup>, K. Osei<sup>2</sup>, M. Chen<sup>1</sup></div>
+      <div class="af"><sup>1</sup>Sample University · <sup>2</sup>Example Lab</div>
+      <div class="abs"><b>Abstract.</b> We show that a small language model, asked to re-check its own answer, recovers most of the gap to a model ten times larger, at a fraction of the cost.</div>
+      <div class="lines"><i></i><i></i><i></i><i></i><i style="width:70%"></i><i style="width:55%"></i></div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 · Reading order -->
+<section class="slide" data-sec="Contents">
+  <h2 class="r">Don't read it <span class="red">top to bottom</span></h2>
+  <div class="anatomy">
+    <div class="page r l" style="--d:.2s">
+      <div class="blk">Title and authors</div>
+      <div class="blk on">Abstract<span class="badge" style="--bd:.6s">1</span></div>
+      <div class="blk">Introduction</div>
+      <div class="blk">Method</div>
+      <div class="blk on tall">Results: tables and figures<span class="badge" style="--bd:.9s">2</span></div>
+      <div class="blk on">Limitations<span class="badge" style="--bd:1.2s">3</span></div>
+      <div class="blk">References</div>
+    </div>
+    <ol class="order">
+      <li class="r rt" style="--d:.6s"><span class="n">1</span><div><div class="t">Abstract and one figure</div><div class="s">What they claim</div></div></li>
+      <li class="r rt" style="--d:.9s"><span class="n">2</span><div><div class="t">The numbers</div><div class="s">Better than what, by how much</div></div></li>
+      <li class="r rt" style="--d:1.2s"><span class="n">3</span><div><div class="t">The limits</div><div class="s">Where the claim stops</div></div></li>
+    </ol>
+  </div>
+</section>
+
+<!-- 3 · Section 1 -->
+<section class="slide section" data-sec="§1 · The claim">
+  <div class="para">§1</div>
+  <div class="kick r">Section one</div>
+  <div class="sec-title split">Find the claim in five minutes</div>
+  <div class="sec-sub r" style="--d:1.1s">The abstract is the trailer, not the film</div>
+</section>
+
+<!-- 4 · Abstract with margin notes -->
+<section class="slide" data-sec="§1 · The claim">
+  <h2 class="r">Three things to <span class="hl" style="--hd:.6s">highlight</span> in every abstract</h2>
+  <div class="absbox r" style="--d:.2s">
+    <div class="ah">Abstract</div>
+    <p>We show that <span class="hl" style="--hd:.9s">a small model, asked to re-check its own answer,</span> answers questions correctly <span class="hl" style="--hd:1.3s">77.5% of the time</span>, compared with <span class="hl" style="--hd:1.7s">71.2% without the check</span>. This recovers most of the gap to a model ten times larger.</p>
+    <div class="mnotes">
+      <div class="mn r" style="--d:1s;top:96px">1 · What they did</div>
+      <div class="mn r" style="--d:1.4s;top:190px">2 · How well</div>
+      <div class="mn r" style="--d:1.8s;top:282px">3 · Compared to what</div>
+    </div>
+  </div>
+</section>
+
+<!-- 5 · Figure -->
+<section class="slide" data-sec="§1 · The claim">
+  <h2 class="r">The check helps most <span class="red">when the model is small</span></h2>
+  <div class="figwrap">
+    <div class="fig r" style="--d:.2s">
+      <svg viewBox="0 0 1040 430" width="1040" height="430" aria-label="Accuracy by model size, with and without self-check">
+        <line class="gl" x1="90" y1="50" x2="1010" y2="50"/><line class="gl" x1="90" y1="130" x2="1010" y2="130"/><line class="gl" x1="90" y1="210" x2="1010" y2="210"/><line class="gl" x1="90" y1="290" x2="1010" y2="290"/>
+        <path class="ax" d="M90 20 V370 H1010"/>
+        <text class="tk" x="40" y="58">85</text><text class="tk" x="40" y="138">80</text><text class="tk" x="40" y="218">75</text><text class="tk" x="40" y="298">70</text><text class="tk" x="40" y="378">65</text>
+        <text class="tk" x="190" y="410">Small</text><text class="tk" x="500" y="410">Medium</text><text class="tk" x="840" y="410">Large</text>
+        <path class="ln b" style="--ld:.5s" d="M220 271 L530 210 L860 148"/>
+        <path class="ln a" style="--ld:.7s" d="M220 170 L530 124 L860 98"/>
+        <line class="eb b" x1="220" y1="252" x2="220" y2="290" style="--ld:1.7s"/><line class="eb b" x1="530" y1="191" x2="530" y2="229" style="--ld:1.7s"/><line class="eb b" x1="860" y1="129" x2="860" y2="167" style="--ld:1.7s"/>
+        <line class="eb a" x1="220" y1="151" x2="220" y2="189" style="--ld:1.8s"/><line class="eb a" x1="530" y1="105" x2="530" y2="143" style="--ld:1.8s"/><line class="eb a" x1="860" y1="79" x2="860" y2="117" style="--ld:1.8s"/>
+        <circle class="pt b" cx="220" cy="271" r="9" style="--ld:1.7s"/><circle class="pt b" cx="530" cy="210" r="9" style="--ld:1.7s"/><circle class="pt b" cx="860" cy="148" r="9" style="--ld:1.7s"/>
+        <circle class="pt a" cx="220" cy="170" r="10" style="--ld:1.8s"/><circle class="pt a" cx="530" cy="124" r="10" style="--ld:1.8s"/><circle class="pt a" cx="860" cy="98" r="10" style="--ld:1.8s"/>
+      </svg>
+      <div class="cap"><b>Figure 2:</b> Accuracy (%) by model size; the axis starts at 65. <span class="red">Red: with self-check</span> (+6.3, +5.4, +3.1 points). Gray: without. Bars show the spread over five runs.</div>
+    </div>
+    <div class="side-note r" style="--d:1.5s">Read the axes and the caption before the lines.</div>
+  </div>
+  <div class="note r" style="--d:1.8s">Fictional paper and illustrative values</div>
+</section>
+
+<!-- 6 · Section 2 -->
+<section class="slide section" data-sec="§2 · The numbers">
+  <div class="para">§2</div>
+  <div class="kick r">Section two</div>
+  <div class="sec-title split">Better than what?</div>
+  <div class="sec-sub r" style="--d:.9s">A number alone means nothing; its comparison means everything</div>
+</section>
+
+<!-- 7 · Booktabs table -->
+<section class="slide" data-sec="§2 · The numbers">
+  <h2 class="r">Almost the big model's score at <span class="red">an eighth of the cost</span></h2>
+  <table class="bt r" style="--d:.2s">
+    <caption><b>Table 1:</b> Accuracy and relative cost on the test set.</caption>
+    <thead><tr><th>Method</th><th>Accuracy (%)</th><th>Relative cost</th></tr></thead>
+    <tbody>
+      <tr class="r" style="--d:.5s"><td>Small model (baseline)</td><td>71.2</td><td class="best">1.0×</td></tr>
+      <tr class="r" style="--d:.8s"><td class="dim2">Model ten times larger</td><td class="best">78.9</td><td>10.0×</td></tr>
+      <tr class="ours r" style="--d:1.1s"><td>Small model + self-check (ours)</td><td>77.5</td><td>1.2×</td></tr>
+    </tbody>
+  </table>
+  <div class="note r" style="--d:1.4s">Fictional paper and illustrative values · bold red marks the best value in each column</div>
+</section>
+
+<!-- 8 · Equation -->
+<section class="slide" data-sec="§2 · The numbers">
+  <h2 class="r">Turn the math into <span class="hl" style="--hd:.6s">a sentence</span></h2>
+  <div class="eqn r" style="--d:.2s">
+    <div class="term">gain<div class="br" style="--bd:.8s"></div><div class="tr">how much it improved</div></div>
+    <span class="op">=</span>
+    <div class="term">77.5<div class="br" style="--bd:1.1s"></div><div class="tr">with the check</div></div>
+    <span class="op">−</span>
+    <div class="term">71.2<div class="br" style="--bd:1.4s"></div><div class="tr">without it</div></div>
+    <span class="op">=</span>
+    <div class="term"><span class="red">6.3</span><div class="br" style="--bd:1.7s"></div><div class="tr">points</div></div>
+    <span class="no">(1)</span>
+  </div>
+  <p class="plain r" style="--d:1.9s">In plain words: <b>about six more right answers for every hundred questions.</b></p>
+</section>
+
+<!-- 9 · Correction -->
+<section class="slide" data-sec="Erratum">
+  <div class="erratum r" style="--d:.1s">
+    <div class="eh">Erratum</div>
+    <div class="msg">The recording says the method "beats the larger model". Table 1 shows it comes close: 77.5% against 78.9%.</div>
+    <div class="pair">
+      <span class="r" style="--d:1s"><span class="strike" style="--sk:1.5s">Beats the larger model</span></span>
+      <span class="r s" style="--d:1.9s">→</span>
+      <span class="red r s" style="--d:2.1s">Comes close, for less</span>
+    </div>
+  </div>
+</section>
+
+<!-- 10 · Section 3 -->
+<section class="slide section" data-sec="§3 · The limits">
+  <div class="para">§3</div>
+  <div class="kick r">Section three</div>
+  <div class="sec-title split">Read the limits section</div>
+  <div class="sec-sub r" style="--d:1s">Honest papers tell you where they stop working</div>
+</section>
+
+<!-- 11 · Citation and reference card -->
+<section class="slide" data-sec="§3 · The limits">
+  <h2 class="r">The fine print is <span class="red">where the hype stops</span></h2>
+  <div class="quote r" style="--d:.2s">"We test only on <span class="hl" style="--hd:.8s">English questions with short answers</span>, following the setup of <span class="cite">[4]</span>. Results may not hold for long documents or other languages."</div>
+  <div class="refcard r s" style="--d:1.2s"><b>[4]</b> L. Novak and P. Sato. <i>A short-answer benchmark for question answering.</i> Fictional reference, 2025.</div>
+  <div class="handnote r" style="--d:1.7s">→ So it's not proven for your 40-page contract.</div>
+</section>
+
+<!-- 12 · Closing -->
+<section class="slide closing" data-sec="End">
+  <img class="logo-img lg r s" alt="logo">
+  <h1 class="r" style="--d:.3s">Claim, <span class="hl" style="--hd:.9s">comparison</span>, limits.</h1>
+  <ol class="refs">
+    <li class="r" style="--d:.7s"><span class="k">[1]</span><span>Your call to action goes here.</span></li>
+    <li class="r" style="--d:.9s"><span class="k">[2]</span><span>A second step or a contact.</span></li>
+  </ol>
+</section>
+<!-- SLIDES:END -->
+
+</div>
+
+<script>
+/* BRAND:BEGIN */
+const LOGO="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHBhdGggZmlsbD0iIzhhOTRhNiIgZD0iTTMyIDRsMjQgMTR2MjhMMzIgNjAgOCA0NlYxOHoiLz48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIxMCIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==";
+/* BRAND:END */
+</script>
+<script>
+/* ENGINE-JS:BEGIN - shared by every template. Do not edit: scaling, effects, navigation and controls. */
+document.querySelectorAll('.logo-img').forEach(i=>{if(LOGO)i.src=LOGO;else i.remove()});
+
+/* ---------- Scaling ---------- */
+const stage=document.getElementById('stage');
+function fit(){const s=Math.min(innerWidth/1920,innerHeight/1080);stage.style.transform=`translate(-50%,-50%) scale(${s})`}
+addEventListener('resize',fit);fit();
+
+/* ---------- Letter-by-letter text ---------- */
+document.querySelectorAll('.split').forEach(el=>{
+  const t=el.textContent;el.textContent='';
+  [...t].forEach((c,i)=>{const s=document.createElement('span');s.className='ch';s.style.setProperty('--i',i);s.textContent=c;el.appendChild(s)});
+});
+
+/* ---------- Effects on slide entry ---------- */
+const timers=[];
+function clearTimers(){while(timers.length)clearTimeout(timers.pop())}
+function later(fn,ms){timers.push(setTimeout(fn,ms))}
+function fmt(v,dec){return Number(v).toLocaleString(document.documentElement.lang||'en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec})}
+function countUp(el){
+  const target=parseFloat(el.dataset.count),dec=+(el.dataset.dec||0),pre=el.dataset.prefix||'',dur=(+el.dataset.dur||1.6)*1000,delay=(+el.dataset.delay||.5)*1000;
+  el.textContent=pre+fmt(0,dec);
+  later(()=>{const t0=performance.now();const tick=now=>{const p=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-p,3);el.textContent=pre+fmt(target*e,dec);if(p<1&&el.closest('.slide').classList.contains('active'))requestAnimationFrame(tick)};requestAnimationFrame(tick)},delay);
+}
+function typeIt(el){
+  const txt=el.dataset.type,delay=(+el.dataset.delay||.5)*1000,speed=+el.dataset.speed||70;el.textContent='';
+  later(()=>{let i=0;const iv=setInterval(()=>{if(!el.closest('.slide').classList.contains('active')){clearInterval(iv);return}el.textContent=txt.slice(0,++i);if(i>=txt.length)clearInterval(iv)},speed);timers.push(iv)},delay);
+}
+function race(slide){
+  const lanes=[...slide.querySelectorAll('.lane')];const max=Math.max(...lanes.map(l=>+l.dataset.secs));
+  const SCALE=13; // ms per real second
+  lanes.forEach(l=>{
+    const secs=+l.dataset.secs,bar=l.querySelector('.trk i'),tm=l.querySelector('.tm');
+    bar.style.transition='none';bar.style.width='0';tm.textContent='0:00';
+    later(()=>{
+      const dur=secs*SCALE;bar.style.transition=`width ${dur}ms linear`;bar.style.width=(secs/max*100)+'%';
+      const t0=performance.now();const tick=now=>{const s=Math.min(secs,Math.floor((now-t0)/SCALE));tm.textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+        if(s<secs&&slide.classList.contains('active'))requestAnimationFrame(tick);else if(s>=secs)tm.style.color=l.classList.contains('fast')?'var(--accent-text)':'var(--text)'};
+      requestAnimationFrame(tick);
+    },1200);
+  });
+}
+function onEnter(slide){
+  clearTimers();
+  slide.querySelectorAll('[data-count]').forEach(countUp);
+  slide.querySelectorAll('[data-type]').forEach(typeIt);
+  if(slide.querySelector('#race'))race(slide);
+}
+
+/* ---------- Navigation ---------- */
+const slides=[...document.querySelectorAll('.slide')];let cur=-1;
+const pad=n=>String(n).padStart(2,'0');
+document.getElementById('tot').textContent=pad(slides.length);
+const wipe=document.getElementById('wipe');
+
+/* Previous / next buttons */
+const nav=document.createElement('div');nav.id='nav';
+nav.innerHTML='<button type="button" id="navPrev" aria-label="Previous slide" title="Previous"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>'
+  +'<button type="button" id="navNext" aria-label="Next slide" title="Next"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>';
+document.getElementById('chrome').appendChild(nav);
+const navPrev=document.getElementById('navPrev'),navNext=document.getElementById('navNext');
+navPrev.addEventListener('click',()=>{go(cur-1);navPrev.blur()});
+navNext.addEventListener('click',()=>{go(cur+1);navNext.blur()});
+
+function go(i,force){
+  i=Math.max(0,Math.min(slides.length-1,i));if(i===cur&&!force)return;
+  slides.forEach((s,j)=>{s.classList.toggle('past',j<i);s.classList.remove('active')});
+  const s=slides[i];
+  if(s.classList.contains('section')&&cur!==-1){wipe.classList.remove('go');void wipe.offsetWidth;wipe.classList.add('go')}
+  void s.offsetWidth;s.classList.add('active');cur=i;
+  document.getElementById('cur').textContent=pad(i+1);
+  document.getElementById('prog').style.width=((i+1)/slides.length*100)+'%';
+  document.getElementById('secName').textContent=s.dataset.sec||'';
+  navPrev.disabled=i===0;navNext.disabled=i===slides.length-1;
+  history.replaceState(null,'','#'+(i+1));
+  onEnter(s);
+}
+addEventListener('keydown',e=>{
+  if(['ArrowRight','PageDown',' ','Enter'].includes(e.key)){e.preventDefault();go(cur+1)}
+  else if(['ArrowLeft','PageUp','Backspace'].includes(e.key)){e.preventDefault();go(cur-1)}
+  else if(e.key==='Home')go(0);else if(e.key==='End')go(slides.length-1);
+  else if(e.key==='r'||e.key==='R')go(cur,true);
+  else if(e.key==='f'||e.key==='F'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()}
+  else if(e.key==='h'||e.key==='H')document.getElementById('chrome').classList.toggle('hide');
+});
+addEventListener('click',e=>{if(e.target.closest&&e.target.closest('#nav'))return;e.clientX<innerWidth*.25?go(cur-1):go(cur+1)});
+go((parseInt(location.hash.slice(1))||1)-1);
+/* ENGINE-JS:END */
+</script>
+</body>
+</html>

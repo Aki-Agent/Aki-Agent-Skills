@@ -70,6 +70,16 @@ If the runtime check passes but `start_browser.js` says no browser answered, tha
 | `templates/swiss-minimal.html` | Swiss typographic style: huge type, grid, one strong color | Design-minded talks, principles, thought leadership | 12 | `#e30613` / `#111111` / `#8a8a8a` |
 | `templates/executive-luxe.html` | Deep tone with gold, framed pages, refined serif type | Premium proposals, finance, law, private clients | 12 | `#0f4c3a` / `#c9a227` / `#e8dcc4` |
 | `templates/saas-aurora.html` | Modern product page: aurora background, glass cards, app mockups | Product demos, sales decks, startups, pricing | 12 | `#7c3aed` / `#06b6d4` / `#f59e0b` |
+| `templates/neo-brutalist.html` | Cream paper, thick black outlines, hard offset shadows, stickers | Product tips, internal tools, creative teams, social clips | 12 | `#f2441d` / `#2f5bff` / `#c6f432` |
+| `templates/bauhaus-geometric.html` | Primary shapes, modular grid, geometric compositions | How systems decide, design talks, education | 12 | `#d62828` / `#1d4e89` / `#f2b705` |
+| `templates/risograph-zine.html` | Print zine: grain, misregistered ink, halftones, taped notes | Media literacy, community talks, culture, NGOs | 12 | `#f0368f` / `#0068b4` / `#ffd800` |
+| `templates/zen-ink.html` | Washi paper, brush strokes, vertical text, wide empty space | Wellbeing, focus, calm technology, reflective talks | 12 | `#b8322a` / `#2d4a63` / `#7d8f69` |
+| `templates/retro-desktop.html` | 90s desktop: bevelled windows, dialogs, wizard, blue screen | Security awareness, tech nostalgia, IT onboarding | 12 | `#008080` / `#000080` / `#1084d0` |
+| `templates/isometric-blocks.html` | Light isometric grid, 3D blocks, exploded layers, moving packets | Infrastructure, how data travels, architecture, cost | 12 | `#4263eb` / `#12b886` / `#fab005` |
+| `templates/kinetic-type.html` | Black screen, huge condensed words that slam, roll and glitch | Glossaries, short videos, openers, social media | 12 | `#ffe14d` / `#ff3d7f` / `#7df9ff` |
+| `templates/chalkboard-class.html` | Green chalkboard, handwriting, self-drawing chalk diagrams | Classes, beginners, step-by-step explanations | 12 | `#ffd166` / `#ef8fa0` / `#8fd3f4` |
+| `templates/sports-broadcast.html` | TV sports studio: scorebug, lower thirds, replays, league table | Comparisons, head-to-head tests, team results | 12 | `#e10600` / `#ffd400` / `#00a3e0` |
+| `templates/academic-paper.html` | Research paper: serif type, highlighter, margin notes, figures | Explaining studies, research summaries, evidence reviews | 12 | `#8c1515` / `#1f5aa6` / `#f7e463` |
 
 Choose by audience and tone, then tell the user which template you chose and why, in one line. If the request does not point to one, use `neon-tech` for technical topics and `editorial-light` for everything else. Slide text in the templates is sample content; its numbers are illustrative.
 
@@ -188,8 +198,23 @@ Reuse the components already in the chosen template: open a sample slide with th
 | `swiss-minimal` | `.biglist`, `.blk`, `.state`, `.prop` (proportional circles), `.anat` (sentence anatomy), `.twocol`, `.ratio`, `.fix`, `.closing` |
 | `executive-luxe` | `.seal` (rotating), `.ledger`, `.orn`, `.pillars3`, `.versus`, `.vt` (vertical timeline), `.tiers`, `.q`, `.note-card`, `.invite`, `.outro` |
 | `saas-aurora` | `.glass`, `.browser` (app mockup), `.stepper`, `.bento`, `.wave`, `.hub` (connections), `.tgl` (before/after switch), `.strip`, `.wall` (reviews), `.plans`, `.toast`, `.btn` |
+| `neo-brutalist` | `.sticker`, `.cards`, `.big` (section block), `.duel`, `.app` (inbox with `.tag`), `.check` (ticking checklist), `.poll`, `.dd` with `.stars`, `.cta` |
+| `bauhaus-geometric` | `.comp` (shape composition), `.shapelist`, `.geo` (sweeping disc), `.grid9`, `.seesaw`, `.units` (unit squares), `.rose` (quarter-circle chart, area = value), `.knob` |
+| `risograph-zine` | `.mis` (misregistered ink), `.ransom` (cut-out letters), `.spread`, `.ht` (halftone), `.tally`, `.venn` (overprint), `.tapes`, `.markup` (photo with `.scrib` circles), `.osteps` |
+| `zen-ink` | `.enso` (self-drawing brush circle), `.vtext` (vertical text), `.inklist` with `.stroke`, `.ripple`, `.stones`, `.day` (brush timeline), `.twin`, `.haiku`, `.hanko` (logo seal) |
+| `retro-desktop` | `.win` (bevelled window), `.ico`, `.task` (taskbar), `.cur` (moving cursor), `.splash` with `.prog` (segmented bar), `.mailx`, `.cascade` (dialogs), `.reveal` (status bar), `.wiz`, `.bsod`, `.safe` |
+| `isometric-blocks` | `.iso` (SVG scene) with `.cube` (`.rise`, `.drop`, `.lit`), `.tile`, `.layer` (exploded stack), `.wire` and `.pkt` (travelling packet), `.steps`, `.legend`, `.groups` |
+| `kinetic-type` | `.slam`, `.rot` (word carousel), `.lines` (masked lines), `.huge`, `.wordhd`, `.tokens`, `.probs` (word area = chance), `.giant`, `.vsline`, `.glitch`, `.ticker` (marquee) |
+| `chalkboard-class` | `.dr` (self-drawing chalk lines), `.st` (chalk SVG text), `.lesson`, `.today`, `.circ`, `.cmp2`, `.eq`, `.exam`, `.erase-line` with `.eraser` |
+| `sports-broadcast` | `.scorebug`, `.lower3`, `.sched`, `.shield`, `.player` with `.attr`, `.drow` (mirrored bars), `.pitch` with `.tel` (telestrator), `.bigstat`, `.league`, `.var`, `.ticker` |
+| `academic-paper` | `.sheet` (paper specimen), `.page` with `.badge`, `.para` (§ marker), `.hl` (highlighter), `.absbox` with `.mn` (margin notes), `.fig` (error bars), `.bt` (booktabs table), `.eqn`, `.cite` and `.refcard`, `.erratum`, `.refs` |
 
 Removing a `neon-tech` diagram slide is safe: its script skips missing elements. Timers in new code must use `setTimeout`, `setInterval`, `requestAnimationFrame` or `performance.now`, so the video render can control them; do not use Web Workers or `<video>`.
+
+When you add CSS for a new component:
+
+- Never put `transform` or an `animation` of your own on an element with class `r`: the entrance animation ends at `transform:none` and replaces it, so the tilt or offset disappears, or the element stays invisible. Use `rotate`, `translate` or `scale`, or animate an inner element.
+- Do not name custom properties `--a`, `--d`, `--sd` or `--i`: the engine reads them. Registering `@property --a` hid every `.r` element in a real run.
 
 ### 5. Verify
 
@@ -314,7 +339,7 @@ node scripts/check.js --html templates/editorial-light.html --sec 8
 node scripts/close_browser.js
 ```
 
-Expected: `ok` for all fourteen templates and `OK: 15 slides with no problems`.
+Expected: `ok` for all twenty-four templates and `OK: 15 slides with no problems`.
 
 ## Measured runs
 
@@ -326,6 +351,7 @@ One run on Windows with Edge headless and ffmpeg 8.1:
 | `friendly-pastel`, default colors, same settings | 1170 frames, 39 s of video, 7.5 MB | 69.3 s (16.9 capture fps) |
 | `data-dashboard`, default colors, 14 slides × 3 s, same settings | 1260 frames, 42 s of video, 21.1 MB | 88.3 s (14.3 capture fps) |
 | `swiss-minimal`, default colors, 12 slides × 3 s, same settings | 1080 frames, 36 s of video, 5.2 MB | 71.5 s (15.1 capture fps) |
+| `isometric-blocks`, default colors, 12 slides × 3 s, same settings | 1080 frames, 36 s of video, 21.5 MB | 84 s (12.9 capture fps) |
 
 Capture speed and file size depend on the machine and on the template's effects. Run `--frames 300` first to estimate a long render.
 
@@ -345,3 +371,13 @@ Capture speed and file size depend on the machine and on the template's effects.
 | `swiss-minimal` | 5 | Fails at 3 s: the ratio note appears at 2.4 s |
 | `executive-luxe` | 3 | |
 | `saas-aurora` | 5 | Fails at 3 s: the mockup's last lines appear at 2.4–2.8 s |
+| `neo-brutalist` | 3 | |
+| `bauhaus-geometric` | 3 | |
+| `risograph-zine` | 3 | |
+| `zen-ink` | 3 | |
+| `retro-desktop` | 3 | |
+| `isometric-blocks` | 3 | |
+| `kinetic-type` | 3 | Also passes at 4, 6, 7 and 10 s: its word carousel loops, so it was checked at several phases |
+| `chalkboard-class` | 3 | |
+| `sports-broadcast` | 3 | |
+| `academic-paper` | 3 | |
