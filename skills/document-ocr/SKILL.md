@@ -21,7 +21,7 @@ Before running OCR, check the PDF's total page count and whether the relevant pa
 
 - For a document of 30 pages or fewer, proceed with the requested extraction without asking about the page count.
 - For a document with more than 30 pages that needs OCR, explain clearly that the affected pages lack usable extractable text and OCR may take a long time. Ask whether to extract specific pages or ranges, or all pages. Wait for the user's choice before starting extraction. If the user has already specified the scope, follow it without asking again.
-- Use `--pages 1,3-5` for a selected range. If all pages are chosen, process large documents in bounded batches; use a separate output directory for each batch so results are not overwritten, and retain the original PDF page numbers.
+- For many pages, use `--pages` to process consecutive, bounded ranges in separate runs instead of sending all pages to one call. For example, start with `--pages 1-5 --output-dir /workspace/document-ocr-output/batch-1`, then use `--pages 6-10 --output-dir /workspace/document-ocr-output/batch-2` and continue through the selected scope. Adjust batch size to the environment and reduce it if a run times out or exhausts resources. A separate output directory prevents results from being overwritten; retain the original PDF page numbers and check each batch's status. Batching limits the work in each call, but does not necessarily reduce total processing time.
 
 ## Usage
 
