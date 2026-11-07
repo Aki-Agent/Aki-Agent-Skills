@@ -14,6 +14,7 @@ venv/
 yt-transcripts/
 yt-test/
 docx-output/
+document-ocr-output/
 presentation-output/
 *.mp4
 *.pdf
