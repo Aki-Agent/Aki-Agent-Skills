@@ -47,11 +47,11 @@ The output directory receives `document.txt` and `document.json`; an existing ou
 ## Workflow
 
 1. Confirm the input and requested pages. Distinguish the PDF page index from printed page numbers, especially when a scan contains two printed pages on one PDF page.
-2. Run extraction, keeping input, output, and cache in locations permitted by the environment. If the document contains private information, do not publish it or send its images to an external service without authorization.
-3. Inspect the JSON report. A page with enough native text uses that text; otherwise the script renders it and uses OCR. This character-count heuristic cannot detect missing text embedded in images alongside native text. Inspect mixed pages and rerun with `--force-ocr` or review the image when needed.
+2. Prefer native text extraction and OCR for substantial content. For a small amount of content, an available and permitted image interpreter may be used first. Keep input, output, and cache in locations permitted by the environment. If the document contains private information, do not publish it or send its images to an external service without authorization.
+3. If using the extraction script, inspect its JSON report. A page with enough native text uses that text; otherwise the script renders it and uses OCR. This character-count heuristic cannot detect missing text embedded in images alongside native text. Inspect mixed pages and rerun with `--force-ocr` or review the image when needed.
 4. Check failed or empty pages against the original. For important quotations, names, numbers, formulas, tables, or multi-column pages, compare the extracted text with a full-resolution image of the relevant page. A contact sheet can help locate pages, but thumbnails may be unreadable.
 5. Preserve page references in the answer. Mark uncertain or illegible passages; never fill gaps by guessing. A completed OCR call and a nonempty output do not establish accuracy.
-6. If a vision capability is available and permitted, use individual high-resolution pages to resolve uncertain passages. Treat its output as another interpretation to verify, not as proof.
+6. If OCR is unavailable, fails, or leaves uncertain content, use an available and permitted image interpreter as a fallback to extract text and information. Render or provide individual high-resolution images of the relevant pages. The interpreter can also help verify uncertain passages; treat its output as an interpretation to check against the original, not as proof.
 
 ## Limits
 
