@@ -15,6 +15,14 @@ Extract text page by page before interpreting a document. Use the PDF page numbe
 
 Install missing dependencies and download the required language data directly, then continue. Do not disable TLS verification or conceal the underlying error.
 
+## Page count and OCR scope
+
+Before running OCR, check the PDF's total page count and whether the relevant pages have usable extractable text. Use an available PDF inspection tool or PyMuPDF; inspect representative pages when the document may be mixed. Do not claim that every page lacks text based only on a sample.
+
+- For a document of 30 pages or fewer, proceed with the requested extraction without asking about the page count.
+- For a document with more than 30 pages that needs OCR, explain clearly that the affected pages lack usable extractable text and OCR may take a long time. Ask whether to extract specific pages or ranges, or all pages. Wait for the user's choice before starting extraction. If the user has already specified the scope, follow it without asking again.
+- Use `--pages 1,3-5` for a selected range. If all pages are chosen, process large documents in bounded batches; use a separate output directory for each batch so results are not overwritten, and retain the original PDF page numbers.
+
 ## Usage
 
 ```bash
