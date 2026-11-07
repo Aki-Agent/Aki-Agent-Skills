@@ -20,10 +20,10 @@ Install missing dependencies and download the required language data directly, t
 ```bash
 python3 scripts/extract.py <INPUT_FILE> \
   --output-dir /workspace/document-ocr-output \
-  --lang spa
+  --lang <LANG>
 ```
 
-`<INPUT_FILE>` may be a PDF or an image supported by PyMuPDF. Images are treated as a single page. The default language is `eng`; use the Tesseract language codes supplied by the user, such as `spa` or `eng+spa`.
+`<INPUT_FILE>` may be a PDF or an image supported by PyMuPDF. Images are treated as a single page. Before OCR, identify the document's most likely language from the user's description, any extractable text, or a visual sample of its pages. The user's conversational language is a useful initial clue, but the document may differ. Set `<LANG>` to the corresponding Tesseract language code, such as `spa` or `eng`; for multilingual documents use combined codes such as `eng+spa`. If uncertain, inspect a small OCR sample and adjust the language before processing the rest. The script defaults to `eng` when `--lang` is omitted.
 
 | Option | Purpose |
 |---|---|
