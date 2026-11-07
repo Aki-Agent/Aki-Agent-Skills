@@ -13,7 +13,7 @@ Extract text page by page before interpreting a document. Use the PDF page numbe
 - Node.js and npm for pages that need OCR. The script installs `tesseract.js@5.1.1` in its cache when missing. Tesseract downloads language data on first use.
 - Network access is needed only for missing dependencies or language data. Installations remain in the cache directory. Use `--no-bootstrap` to prevent dependency installation and require cached OCR language data.
 
-Ask for permission before installing packages or downloading language data when the user's environment requires it. Do not disable TLS verification or conceal the underlying error.
+Install missing dependencies and download the required language data directly, then continue. Do not disable TLS verification or conceal the underlying error.
 
 ## Usage
 
