@@ -80,6 +80,16 @@ If the runtime check passes but `start_browser.js` says no browser answered, tha
 | `templates/chalkboard-class.html` | Green chalkboard, handwriting, self-drawing chalk diagrams | Classes, beginners, step-by-step explanations | 12 | `#ffd166` / `#ef8fa0` / `#8fd3f4` |
 | `templates/sports-broadcast.html` | TV sports studio: scorebug, lower thirds, replays, league table | Comparisons, head-to-head tests, team results | 12 | `#e10600` / `#ffd400` / `#00a3e0` |
 | `templates/academic-paper.html` | Research paper: serif type, highlighter, margin notes, figures | Explaining studies, research summaries, evidence reviews | 12 | `#8c1515` / `#1f5aa6` / `#f7e463` |
+| `templates/art-deco-gala.html` | Black and gold Art Deco: sunburst, stepped frames, marquee bulbs | Events, galas, launches, hospitality | 12 | `#d4af37` / `#1f6f78` / `#f2e6c9` |
+| `templates/clay-soft.html` | Claymorphism: soft 3D cards, inflated buttons, floating clay shapes | Consumer apps, smart home, friendly product explainers | 12 | `#6c5ce7` / `#ff8a65` / `#4cd4b0` |
+| `templates/paper-cutout.html` | Layered paper craft: torn notes, tape, paper hills and strips | Photo and image tools, crafts, school and family audiences | 12 | `#e4572e` / `#29335c` / `#f3a712` |
+| `templates/y2k-chrome.html` | Y2K: chrome type, holographic borders, sparkles, glossy windows | Phones and gadgets, youth audiences, social clips | 12 | `#ff4fd8` / `#3df2ff` / `#b8ff3d` |
+| `templates/museum-gallery.html` | Gallery wall: gilt frames, wall labels, vitrine, floor plan | Images and recognition, culture, history, guided tours | 12 | `#8b1e3f` / `#1d3557` / `#b08d57` |
+| `templates/travel-passport.html` | Travel: boarding pass, stamps, route map, split-flap board | Translation, travel, step-by-step journeys | 12 | `#0b6e4f` / `#e63946` / `#f4a261` |
+| `templates/transit-map.html` | Metro map: colored lines, stations, roundels, platform display | Routing, logistics, how a system chooses, networks | 12 | `#e3242b` / `#0072ce` / `#00a650` |
+| `templates/pixel-arcade.html` | 8-bit game: pixel sprites, HUD, dialogue box, high scores | Learning by trial and error, gamified training, young audiences | 12 | `#ff3366` / `#ffd23f` / `#3ee0cf` |
+| `templates/social-stories.html` | Social app UI: phone stories, highlights, feed, notifications, poll | Social media, recommendations, digital habits | 12 | `#ff2e63` / `#7b2ff7` / `#ffb800` |
+| `templates/watercolor-storybook.html` | Children's storybook: watercolor washes, chapters, open book, story map | Narrated explainers, beginners, families, gentle introductions | 12 | `#3a7ca5` / `#d1495b` / `#edae49` |
 
 Choose by audience and tone, then tell the user which template you chose and why, in one line. If the request does not point to one, use `neon-tech` for technical topics and `editorial-light` for everything else. Slide text in the templates is sample content; its numbers are illustrative.
 
@@ -208,13 +218,24 @@ Reuse the components already in the chosen template: open a sample slide with th
 | `chalkboard-class` | `.dr` (self-drawing chalk lines), `.st` (chalk SVG text), `.lesson`, `.today`, `.circ`, `.cmp2`, `.eq`, `.exam`, `.erase-line` with `.eraser` |
 | `sports-broadcast` | `.scorebug`, `.lower3`, `.sched`, `.shield`, `.player` with `.attr`, `.drow` (mirrored bars), `.pitch` with `.tel` (telestrator), `.bigstat`, `.league`, `.var`, `.ticker` |
 | `academic-paper` | `.sheet` (paper specimen), `.page` with `.badge`, `.para` (§ marker), `.hl` (highlighter), `.absbox` with `.mn` (margin notes), `.fig` (error bars), `.bt` (booktabs table), `.eqn`, `.cite` and `.refcard`, `.erratum`, `.refs` |
+| `art-deco-gala` | `.deco` (frame with diamond corners), `.arches`, `.diamond` (section), `.marquee` with `.bulbs`, `.fan` (half fan, angle = share), `.tables` with `.seat`, `.ticket` (tearing stub), `.telegram`, `.stairs` (before/after bars) |
+| `clay-soft` | `.puff` (clay card), `.orb`, `.dial` (two-ring gauge), `.routine` with `.sw` (switches), `.sliders` (autonomy), `.stacks` with `.coin`, `.bubbles` (area = share), `.pill` |
+| `paper-cutout` | `.card.torn` with `.tape`, `.cutout`, `.layn` (layered numeral), `.duo`, `.peel` (separating layers), `.fold` (accordion steps), `.strips` (torn bars), `.tags` (swinging tags) |
+| `y2k-chrome` | `.chrome` (metal text), `.holo` (holographic card), `.bubble` with `.loader`, `.duel`, `.phone` with `.voice` and `.typed`, `.cd` (spinning disc ring), `.meters` with `.eq`, `.aqua` (glossy window), `.gel` |
+| `museum-gallery` | `.frame` with `.art` and `.plaque`, `.hangw` (spotlight), `.plan` (floor plan route), `.sign` (room sign), `.bigp`, `.vitrine` with `.call` (callouts), `.salon` (frame area = share), `.guide` (audio guide), `.notices` |
+| `travel-passport` | `.pass` (boarding pass), `.map` with `.plane` (moves along the path), `.stamp`, `.book`, `.board` with `.fl` (split-flap), `.belt` with `.bag`, `.stamps` with `.ink`, `.postcard`, `.checks` |
+| `transit-map` | `.metro` (self-drawing lines), `.strip` with `.train`, `.roundel`, `.trips` with `.segs` (walk/wait/ride), `.plat` (platform display), `.network` (chosen route), `.train5` with `.seats` (crowding), `.notice`, `.signs` |
+| `pixel-arcade` | `.hud` with `.heart`, `.bot` (pixel sprite), `.coin`, `.lvl` (level map with `.walker`), `.screens` (`.cab`), `.rpg` (dialogue box), `.hs` (high scores), `.run` (step chart), `.patch`, `.hpbar` with `.fixes` |
+| `social-stories` | `.phone` with `.sbars` (story bars) and `.hearts`, `.hls` (highlights), `.bigring`, `.dots` (dot matrix), `.posts` (scrolling feed) with `.chip`, `.sig` (weights), `.notifs`, `.cmt`, `.poll`, `.prof` |
+| `watercolor-storybook` | `.wash`, `.titlepg`, `.ribbons`, `.cap` (watercolor drop cap), `.book` with `.leaf` (page turn), `.jars` (level = chance), `.mapb` with `.flag`, `.pots` (growing plants), `.anote`, `.moral` |
 
 Removing a `neon-tech` diagram slide is safe: its script skips missing elements. Timers in new code must use `setTimeout`, `setInterval`, `requestAnimationFrame` or `performance.now`, so the video render can control them; do not use Web Workers or `<video>`.
 
 When you add CSS for a new component:
 
-- Never put `transform` or an `animation` of your own on an element with class `r`: the entrance animation ends at `transform:none` and replaces it, so the tilt or offset disappears, or the element stays invisible. Use `rotate`, `translate` or `scale`, or animate an inner element.
+- Never put `transform`, `filter` or an `animation` of your own on an element with class `r`: the entrance animation ends at `transform:none` and `filter:none` and replaces them, so the tilt, offset or drop shadow disappears, or the element stays invisible. Use `rotate`, `translate` or `scale` and `box-shadow`, or animate an inner element.
 - Do not name custom properties `--a`, `--d`, `--sd` or `--i`: the engine reads them. Registering `@property --a` hid every `.r` element in a real run.
+- Do not name your own `@keyframes` `up`, `down`, `fromL`, `fromR`, `pop`, `blurIn`, `wipeIn`, `chIn` or `wipe`: DESIGN-CSS comes after the engine and replaces them. A `@keyframes pop{to{scale:1}}` left every `class="r s"` element at opacity 0 in a real run, and `check.js` reported it as `hidden`.
 
 ### 5. Verify
 
@@ -339,7 +360,7 @@ node scripts/check.js --html templates/editorial-light.html --sec 8
 node scripts/close_browser.js
 ```
 
-Expected: `ok` for all twenty-four templates and `OK: 15 slides with no problems`.
+Expected: `ok` for all thirty-four templates and `OK: 15 slides with no problems`.
 
 ## Measured runs
 
@@ -352,6 +373,7 @@ One run on Windows with Edge headless and ffmpeg 8.1:
 | `data-dashboard`, default colors, 14 slides × 3 s, same settings | 1260 frames, 42 s of video, 21.1 MB | 88.3 s (14.3 capture fps) |
 | `swiss-minimal`, default colors, 12 slides × 3 s, same settings | 1080 frames, 36 s of video, 5.2 MB | 71.5 s (15.1 capture fps) |
 | `isometric-blocks`, default colors, 12 slides × 3 s, same settings | 1080 frames, 36 s of video, 21.5 MB | 84 s (12.9 capture fps) |
+| `watercolor-storybook`, default colors, 12 slides × 3 s, same settings | 1080 frames, 36 s of video, 14.0 MB | 81 s (13.3 capture fps) |
 
 Capture speed and file size depend on the machine and on the template's effects. Run `--frames 300` first to estimate a long render.
 
@@ -381,3 +403,13 @@ Capture speed and file size depend on the machine and on the template's effects.
 | `chalkboard-class` | 3 | |
 | `sports-broadcast` | 3 | |
 | `academic-paper` | 3 | |
+| `art-deco-gala` | 3 | |
+| `clay-soft` | 3 | |
+| `paper-cutout` | 3 | |
+| `y2k-chrome` | 3 | |
+| `museum-gallery` | 3 | |
+| `travel-passport` | 3 | |
+| `transit-map` | 3 | |
+| `pixel-arcade` | 3 | |
+| `social-stories` | 3 | |
+| `watercolor-storybook` | 3 | |
