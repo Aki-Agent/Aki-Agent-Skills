@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en" data-surface="light" data-text-colors="primary">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sample · How an app asks an AI for an answer</title>
+<style>
+/* THEME:BEGIN - the three brand colors; --on-* is the readable text color on each one. Set with scripts/apply_brand.js */
+:root{--primary:#2563eb;--secondary:#16a34a;--tertiary:#d97706;--on-primary:#ffffff;--on-secondary:#ffffff;--on-tertiary:#ffffff}
+/* THEME:END */
+</style>
+<style>
+/* ENGINE-CSS:BEGIN - shared by every template. Do not edit: stage, chrome, controls and entrance animations. */
+:root{--ease:cubic-bezier(.2,.8,.2,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg0);color:var(--text);font-family:var(--font)}
+body{cursor:default;-webkit-font-smoothing:antialiased}
+
+/* Stage: fixed 1920x1080, scaled by fit() */
+#stage{position:absolute;left:50%;top:50%;width:1920px;height:1080px;transform-origin:center;z-index:5}
+.slide{position:absolute;inset:0;padding:150px 150px 120px;display:flex;flex-direction:column;justify-content:center;
+  opacity:0;visibility:hidden;transform:scale(1.05);filter:blur(12px);
+  transition:opacity .7s var(--ease),transform 1s var(--ease),filter .7s var(--ease),visibility 0s linear 1s}
+.slide.past{transform:scale(.95)}
+.slide.active{opacity:1;visibility:visible;transform:none;filter:none;transition-delay:.15s,.15s,.15s,0s}
+
+/* Chrome */
+#chrome{position:absolute;inset:0;pointer-events:none;z-index:20;transition:opacity .4s}
+#chrome.hide{opacity:0}
+.brand{position:absolute;left:70px;top:54px;display:flex;align-items:center;gap:18px}
+.brand img{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 0 14px color-mix(in srgb,var(--secondary) 55%,transparent))}
+.brand .t{font-size:17px;letter-spacing:.32em;font-weight:600;color:var(--soft);text-transform:uppercase}
+.brand .sep{width:1px;height:26px;background:var(--line)}
+.brand .sec{font-size:17px;letter-spacing:.18em;color:var(--accent-text);text-transform:uppercase;font-weight:600;transition:opacity .3s}
+.counter{position:absolute;right:70px;top:58px;font-family:var(--mono);font-size:20px;color:var(--muted);letter-spacing:.1em}
+.counter b{color:var(--text);font-weight:600}
+.progress{position:absolute;left:70px;right:70px;bottom:50px;height:3px;background:var(--track);border-radius:3px;overflow:hidden}
+.progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--primary),var(--secondary));box-shadow:0 0 14px var(--secondary);transition:width .8s var(--ease)}
+.hint{position:absolute;right:70px;bottom:68px;font-size:14px;color:var(--muted);opacity:.7;letter-spacing:.08em}
+
+/* Previous / next buttons (built by the engine script, hidden in video capture) */
+#nav{position:absolute;left:50%;bottom:66px;transform:translateX(-50%);display:flex;gap:14px}
+#nav button{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;cursor:pointer;pointer-events:auto;
+  color:var(--text);background:var(--track);border:1px solid var(--line);transition:background .2s,color .2s,opacity .2s}
+#nav button:hover:not(:disabled){background:var(--primary);color:var(--on-primary)}
+#nav button:focus-visible{outline:2px solid var(--secondary);outline-offset:3px}
+#nav button:disabled{opacity:.3;cursor:default}
+#nav svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+#chrome.hide #nav button{pointer-events:none}
+.capture #nav{display:none}
+
+/* Section wipe */
+#wipe{position:absolute;inset:-10% -30%;z-index:30;pointer-events:none;transform:translateX(-120%) skewX(-18deg);
+  background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--primary) 0%,transparent) 5%,var(--primary) 25%,var(--secondary) 50%,#fff 52%,var(--primary) 60%,color-mix(in srgb,var(--primary) 0%,transparent) 95%,transparent)}
+#wipe.go{animation:wipe 1.1s cubic-bezier(.7,0,.3,1) forwards}
+@keyframes wipe{0%{transform:translateX(-120%) skewX(-18deg)}100%{transform:translateX(120%) skewX(-18deg)}}
+
+/* Entrance animations */
+.r{opacity:0}
+.slide.active .r{animation:var(--a,up) 1s var(--ease) both;animation-delay:var(--d,0s)}
+.r.l{--a:fromL}.r.rt{--a:fromR}.r.s{--a:pop}.r.b{--a:blurIn}.r.w{--a:wipeIn}.r.dn{--a:down}
+@keyframes up{from{opacity:0;transform:translateY(50px);filter:blur(8px)}to{opacity:1;transform:none;filter:none}}
+@keyframes down{from{opacity:0;transform:translateY(-40px);filter:blur(8px)}to{opacity:1;transform:none;filter:none}}
+@keyframes fromL{from{opacity:0;transform:translateX(-80px);filter:blur(8px)}to{opacity:1;transform:none;filter:none}}
+@keyframes fromR{from{opacity:0;transform:translateX(80px);filter:blur(8px)}to{opacity:1;transform:none;filter:none}}
+@keyframes pop{0%{opacity:0;transform:scale(.6)}60%{opacity:1;transform:scale(1.06)}100%{opacity:1;transform:none}}
+@keyframes blurIn{from{opacity:0;filter:blur(24px);transform:scale(1.15)}to{opacity:1;filter:none;transform:none}}
+@keyframes wipeIn{from{opacity:1;clip-path:inset(0 100% 0 0)}to{opacity:1;clip-path:inset(0 0 0 0)}}
+.split .ch{display:inline-block;opacity:0;white-space:pre}
+.slide.active .split .ch{animation:chIn .8s var(--ease) both;animation-delay:calc(var(--sd,.2s) + var(--i) * .035s)}
+@keyframes chIn{from{opacity:0;transform:translateY(.6em) rotateX(-80deg);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
+/* ENGINE-CSS:END */
+</style>
+<style>
+/* DESIGN-CSS - look of this template, derived from the theme colors. Slides may add components here. */
+:root{
+  --font:"Segoe UI Variable Display","Segoe UI",Arial,sans-serif;
+  --mono:"Cascadia Code",Consolas,monospace;
+  --bg0:#ffffff;--text:#0f172a;--soft:#475569;--muted:#64748b;
+  --accent-text:var(--primary);--line:#e2e8f0;--track:#eef2f7;
+  --codebg:#0f172a;--codetx:#e2e8f0;--codemu:#94a3b8;
+  --card:0 1px 2px rgba(15,23,42,.06),0 8px 24px rgba(15,23,42,.06);
+}
+
+/* ---------- Background: dot grid, top band and a drifting glow ---------- */
+#bg{position:fixed;inset:0;z-index:0;background:
+  linear-gradient(color-mix(in srgb,var(--primary) 6%,transparent),transparent 26%),
+  radial-gradient(#e2e8f0 1.2px,transparent 1.6px) 0 0/30px 30px,var(--bg0)}
+#glow{position:fixed;z-index:1;right:-10vw;top:-20vh;width:60vw;height:60vh;border-radius:50%;pointer-events:none;
+  background:radial-gradient(color-mix(in srgb,var(--primary) 10%,transparent),transparent 65%);animation:drift 14s ease-in-out infinite alternate}
+@keyframes drift{to{translate:-12vw 14vh}}
+
+/* ---------- Typography ---------- */
+.slide{font-family:var(--font)}
+h1{font-size:110px;line-height:1.04;font-weight:700;letter-spacing:-.03em}
+h2{font-size:60px;line-height:1.1;font-weight:700;letter-spacing:-.02em;margin-bottom:44px;max-width:1500px}
+.acc{color:var(--accent-text)}
+.lead{font-size:34px;line-height:1.45;color:var(--soft);max-width:1100px}
+.note{margin-top:30px;font-size:21px;color:var(--muted)}
+.inl{font-family:var(--mono);font-size:.86em;padding:2px 10px;border-radius:6px;background:var(--track);border:1px solid var(--line);color:var(--text)}
+
+/* ---------- Breadcrumbs, method badge, meta ---------- */
+.crumbs{display:flex;gap:14px;align-items:center;font-size:24px;color:var(--muted);margin-bottom:34px}
+.crumbs b{color:var(--accent-text);font-weight:600}
+.crumbs i{font-style:normal;color:var(--muted)}
+.ep{display:inline-flex;align-items:center;gap:18px;margin-top:46px;padding:14px 22px 14px 14px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--card);font-family:var(--mono);font-size:28px}
+.meth{padding:6px 14px;border-radius:8px;font-weight:700;font-size:22px;letter-spacing:.04em;background:var(--secondary);color:var(--on-secondary)}
+.meta{display:flex;gap:30px;margin-top:26px;font-size:22px;color:var(--muted)}
+
+/* ---------- On this page (TOC) with a moving indicator ---------- */
+.agwrap{display:grid;grid-template-columns:1fr 560px;gap:80px;align-items:start;max-width:1600px}
+.toc{position:relative;border-left:3px solid var(--line);padding-left:40px}
+.toc .hd{font-size:20px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:24px}
+.toc .it{display:grid;grid-template-columns:70px 1fr;align-items:baseline;padding:20px 0;border-bottom:1px solid var(--line)}
+.toc .it .n{font-family:var(--mono);font-size:26px;color:var(--accent-text)}
+.toc .it .t{font-size:40px;font-weight:700}
+.toc .it .t small{display:block;font-size:25px;font-weight:400;color:var(--soft);margin-top:4px}
+.toc .ind{position:absolute;left:-3px;top:62px;width:3px;height:112px;background:var(--primary)}
+.slide.active .toc .ind{animation:tocMove 6s ease-in-out 1s infinite}
+@keyframes tocMove{0%,22%{translate:0 0}33%,55%{translate:0 113px}66%,88%{translate:0 226px}100%{translate:0 0}}
+
+/* ---------- Callouts ---------- */
+.callout{position:relative;padding:30px 34px 30px 96px;border-radius:12px;border:1px solid color-mix(in srgb,var(--c) 35%,var(--line));background:color-mix(in srgb,var(--c) 7%,#fff)}
+.callout::before{content:var(--ic);position:absolute;left:30px;top:28px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;
+  font-family:var(--mono);font-weight:700;font-size:24px;background:var(--c);color:#fff}
+.callout .k{font-size:22px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:color-mix(in srgb,var(--c) 70%,#0f172a)}
+.callout .s{font-size:28px;line-height:1.4;margin-top:8px;color:var(--text)}
+.callout.note{--c:var(--primary);--ic:"i"}.callout.tip{--c:var(--secondary);--ic:"✓"}.callout.warn{--c:var(--tertiary);--ic:"!"}
+
+/* ---------- Section: chapter header ---------- */
+.section .sec-big{position:absolute;right:200px;top:50%;translate:0 -50%;font-family:var(--mono);font-size:380px;line-height:.8;font-weight:700;color:transparent;-webkit-text-stroke:4px color-mix(in srgb,var(--primary) 22%,#fff)}
+.section .sec-big::before{content:"#";-webkit-text-stroke-color:color-mix(in srgb,var(--primary) 40%,#fff)}
+.chap{font-family:var(--mono);font-size:24px;color:var(--accent-text);margin-bottom:24px;align-self:flex-start}
+.sec-title{font-size:100px;line-height:1.04;font-weight:700;letter-spacing:-.03em;max-width:1000px}
+.sec-sub{font-size:32px;color:var(--soft);margin-top:28px;max-width:900px;line-height:1.4}
+
+/* ---------- Sequence diagram ---------- */
+.seq{position:relative;width:1500px;height:560px;align-self:center}
+.seq .who{position:absolute;top:0;width:280px;margin-left:-140px;padding:20px 0;text-align:center;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--card);font-size:32px;font-weight:700}
+.seq .who small{display:block;font-size:21px;font-weight:400;color:var(--muted);margin-top:2px}
+.seq .life{position:absolute;top:110px;bottom:0;width:0;border-left:3px dashed #cbd5e1}
+.msg{position:absolute;height:3px;background:var(--c,var(--primary))}
+.msg::after{content:"";position:absolute;top:-9px;border:10px solid transparent}
+.msg.fw::after{right:-14px;border-left:14px solid var(--c,var(--primary))}
+.msg.bk::after{left:-14px;border-right:14px solid var(--c,var(--primary))}
+.msg span{position:absolute;left:50%;bottom:14px;translate:-50% 0;padding:2px 14px;border-radius:8px;background:var(--bg0);font-size:25px;color:var(--text);white-space:nowrap}
+.msg span code{font-family:var(--mono);font-size:22px;color:var(--soft)}
+
+/* ---------- Code window with tabs ---------- */
+.codewrap{display:grid;grid-template-columns:1fr 520px;gap:60px;max-width:1620px;align-items:start}
+.code{border-radius:14px;background:var(--codebg);box-shadow:0 20px 50px rgba(15,23,42,.25);overflow:hidden}
+.tabs{display:flex;gap:6px;padding:0 20px;border-bottom:1px solid #1e293b;background:#111c33}
+.tabs span{position:relative;padding:18px 20px;font-size:22px;color:var(--codemu)}
+.tabs span.on{color:#fff}
+.tabs span.on::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:3px;background:color-mix(in srgb,var(--primary) 65%,#fff)}
+.lines{padding:26px 0;font-family:var(--mono);font-size:27px;line-height:1.62;color:var(--codetx)}
+.lines .ln{display:block;padding:0 34px 0 0;white-space:pre}
+.lines .ln::before{content:attr(data-n);display:inline-block;width:70px;text-align:right;margin-right:28px;color:#475569}
+.lines .ln.hl{background:color-mix(in srgb,var(--primary) 22%,transparent)}
+.kw{color:color-mix(in srgb,var(--primary) 45%,#fff)}.st{color:color-mix(in srgb,var(--secondary) 55%,#fff)}.nu{color:color-mix(in srgb,var(--tertiary) 60%,#fff)}.cm{color:var(--codemu)}
+.keys{display:grid;gap:22px}
+.key{display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:baseline;padding:22px 26px;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--card)}
+.key .inl{font-size:24px}
+.key .s{font-size:26px;line-height:1.35;color:var(--soft)}
+.key .s b{color:var(--text)}
+
+/* ---------- Tokens ---------- */
+.tok{display:flex;flex-wrap:wrap;gap:12px;max-width:1500px;font-family:var(--mono);font-size:44px}
+.tok span{padding:10px 18px;border-radius:10px;background:color-mix(in srgb,var(--c) 14%,#fff);border:1px solid color-mix(in srgb,var(--c) 40%,#fff)}
+.tok span:nth-child(3n+1){--c:var(--primary)}.tok span:nth-child(3n+2){--c:var(--secondary)}.tok span:nth-child(3n){--c:var(--tertiary)}
+.tstats{display:grid;grid-template-columns:repeat(3,1fr);gap:34px;max-width:1500px;margin-top:50px}
+.stat{padding:30px 34px;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:var(--card)}
+.stat .v{font-size:88px;font-weight:700;line-height:1;letter-spacing:-.02em}
+.stat.win .v{color:var(--accent-text)}
+.stat .k{font-size:26px;color:var(--soft);margin-top:12px;line-height:1.35}
+
+/* ---------- HTTP status cards ---------- */
+.codes{display:grid;grid-template-columns:repeat(3,1fr);gap:36px;max-width:1600px}
+.sc{padding:36px 38px;border:1px solid var(--line);border-left:8px solid var(--c);border-radius:12px;background:#fff;box-shadow:var(--card)}
+.sc .n{font-family:var(--mono);font-size:84px;font-weight:700;line-height:1;color:color-mix(in srgb,var(--c) 80%,#0f172a)}
+.sc .t{font-size:36px;font-weight:700;margin-top:16px}
+.sc .s{font-size:26px;line-height:1.4;color:var(--soft);margin-top:10px}
+.sc .an{margin-top:20px;padding-top:18px;border-top:1px dashed var(--line);font-size:24px;color:var(--muted)}
+.sc.ok{--c:var(--secondary)}.sc.wait{--c:var(--tertiary)}.sc.err{--c:#dc2626}
+
+/* ---------- Correction ---------- */
+.fix{max-width:1450px}
+.fix .s{font-size:38px;line-height:1.4}
+.pair{display:flex;gap:40px;align-items:center;margin-top:40px;font-size:54px;font-weight:700}
+.strike{position:relative;display:inline-block;color:var(--muted)}
+.strike::after{content:"";position:absolute;left:-3%;top:52%;height:7px;width:0;background:var(--tertiary)}
+.slide.active .strike::after{animation:strike .5s ease-out forwards;animation-delay:var(--sk,1.4s)}
+@keyframes strike{to{width:106%}}
+
+/* ---------- Quickstart steps ---------- */
+.qs{display:grid;grid-template-columns:1fr 520px;gap:70px;max-width:1600px;align-items:start}
+.steps{position:relative;display:grid;gap:34px;padding-left:96px}
+.steps::before{content:"";position:absolute;left:31px;top:10px;bottom:10px;width:3px;background:var(--line)}
+.stp{position:relative}
+.stp .n{position:absolute;left:-96px;top:0;width:66px;height:66px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:28px;font-weight:700;background:#fff;border:3px solid var(--primary);color:var(--accent-text)}
+.stp.done .n{background:var(--primary);color:var(--on-primary)}
+.stp .t{font-size:40px;font-weight:700;line-height:1.15}
+.stp .s{font-size:27px;color:var(--soft);margin-top:8px;line-height:1.4}
+
+/* ---------- Closing ---------- */
+.closing .lgc{align-self:flex-start;padding:20px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:var(--card);margin-bottom:40px}
+.closing .lgc img{display:block;width:96px;height:96px;object-fit:contain}
+.cta{display:inline-flex;align-items:center;gap:16px;margin-top:44px;font-size:34px;font-weight:600;padding:20px 40px;border-radius:12px;background:var(--primary);color:var(--on-primary);box-shadow:0 10px 30px color-mix(in srgb,var(--primary) 35%,transparent)}
+.cta::after{content:"→"}
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<div id="glow"></div>
+
+<div id="stage">
+<div id="chrome">
+  <div class="brand"><img class="logo-img" alt="logo"><span class="t">Your title</span><span class="sep"></span><span class="sec" id="secName"></span></div>
+  <div class="counter"><b id="cur">01</b> / <span id="tot">00</span></div>
+  <div class="progress"><i id="prog"></i></div>
+  <div class="hint">← → navigate · F fullscreen · H hide interface</div>
+</div>
+<div id="wipe"></div>
+
+<!-- SLIDES:BEGIN - replace the slide sections below with your content -->
+<!-- 1 · Cover -->
+<section class="slide" data-sec="Intro">
+  <div class="crumbs r" style="--d:.1s"><span>Docs</span><i>/</i><span>Guides</span><i>/</i><b>Sample content</b></div>
+  <h1 class="r" style="--d:.3s">How an app asks<br>an AI <span class="acc">for an answer</span></h1>
+  <p class="lead r" style="--d:.6s;margin-top:36px">What travels between your phone, the company's server and the AI model, explained without code.</p>
+  <div class="r" style="--d:.9s"><span class="ep"><span class="meth">POST</span>/v1/answers</span></div>
+  <div class="meta r" style="--d:1.1s"><span>Guide</span><span>·</span><span>5 min read</span><span>·</span><span>Beginner</span></div>
+</section>
+
+<!-- 2 · Agenda -->
+<section class="slide" data-sec="Agenda">
+  <h2 class="r">Every request has <span class="acc">three moments</span></h2>
+  <div class="agwrap">
+    <div class="toc r l" style="--d:.2s">
+      <div class="hd">On this page</div>
+      <div class="it"><span class="n">01</span><span class="t">The request<small>What the app sends</small></span></div>
+      <div class="it"><span class="n">02</span><span class="t">The answer<small>What comes back and what it costs</small></span></div>
+      <div class="it"><span class="n">03</span><span class="t">Start small<small>Three steps to try it</small></span></div>
+      <i class="ind"></i>
+    </div>
+    <div class="callout note r rt" style="--d:.5s"><div class="k">Note</div><div class="s">You do not need to write code to follow this guide. Every snippet is explained in plain words.</div></div>
+  </div>
+</section>
+
+<!-- 3 · Section 1 -->
+<section class="slide section" data-sec="01 · The request">
+  <div class="sec-big">1</div>
+  <div class="chap r s">## 01</div>
+  <div class="sec-title split">The request</div>
+  <div class="sec-sub r" style="--d:1s">Like ordering at a counter: the app writes a short note and hands it over</div>
+</section>
+
+<!-- 4 · Sequence -->
+<section class="slide" data-sec="01 · The request">
+  <h2 class="r">Your phone never talks <span class="acc">to the AI directly</span></h2>
+  <div class="seq">
+    <div class="who r dn" style="--d:.1s;left:150px">Your app<small>the customer</small></div>
+    <div class="who r dn" style="--d:.2s;left:750px">The API<small>the counter</small></div>
+    <div class="who r dn" style="--d:.3s;left:1350px">The model<small>the kitchen</small></div>
+    <i class="life" style="left:150px"></i><i class="life" style="left:750px"></i><i class="life" style="left:1350px"></i>
+    <div class="msg fw r l" style="--d:.6s;left:150px;width:600px;top:200px"><span>1 · The order <code>POST /v1/answers</code></span></div>
+    <div class="msg fw r l" style="--d:1s;left:750px;width:600px;top:300px"><span>2 · Checks the key, passes it on</span></div>
+    <div class="msg bk r rt" style="--d:1.4s;left:750px;width:600px;top:400px;--c:var(--secondary)"><span>3 · The answer, word by word</span></div>
+    <div class="msg bk r rt" style="--d:1.8s;left:150px;width:600px;top:500px;--c:var(--secondary)"><span>4 · Shown on your screen</span></div>
+  </div>
+</section>
+
+<!-- 5 · Code -->
+<section class="slide" data-sec="01 · The request">
+  <h2 class="r">The order is a note with <span class="acc">three parts</span></h2>
+  <div class="codewrap">
+    <div class="code r" style="--d:.1s">
+      <div class="tabs"><span>cURL</span><span class="on">Python</span><span>JavaScript</span></div>
+      <div class="lines">
+        <span class="ln r w" data-n="1" style="--d:.4s"><span class="kw">answer</span> = client.answers.<span class="kw">create</span>(</span>
+        <span class="ln hl r w" data-n="2" style="--d:.6s">  model=<span class="st">"small-fast"</span>,</span>
+        <span class="ln hl r w" data-n="3" style="--d:.8s">  messages=[{<span class="st">"role"</span>: <span class="st">"user"</span>,</span>
+        <span class="ln hl r w" data-n="4" style="--d:1s">    <span class="st">"content"</span>: <span class="st">"Summarise this email"</span>}],</span>
+        <span class="ln hl r w" data-n="5" style="--d:1.2s">  max_tokens=<span class="nu">200</span>,</span>
+        <span class="ln r w" data-n="6" style="--d:1.4s">)</span>
+        <span class="ln r w" data-n="7" style="--d:1.6s"><span class="cm"># answer.text holds the reply</span></span>
+      </div>
+    </div>
+    <div class="keys">
+      <div class="key r rt" style="--d:.7s"><span class="inl">model</span><span class="s"><b>Which cook.</b> Small ones are faster and cheaper</span></div>
+      <div class="key r rt" style="--d:1s"><span class="inl">messages</span><span class="s"><b>What you want</b>, in normal words</span></div>
+      <div class="key r rt" style="--d:1.3s"><span class="inl">max_tokens</span><span class="s"><b>How long</b> the answer may be, at most</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 6 · Section 2 -->
+<section class="slide section" data-sec="02 · The answer">
+  <div class="sec-big">2</div>
+  <div class="chap r s">## 02</div>
+  <div class="sec-title split">The answer</div>
+  <div class="sec-sub r" style="--d:1s">It comes back in small pieces, and each piece has a price</div>
+</section>
+
+<!-- 7 · Tokens -->
+<section class="slide" data-sec="02 · The answer">
+  <h2 class="r">You pay <span class="acc">per piece of text</span>, not per question</h2>
+  <div class="tok">
+    <span class="r s" style="--d:.2s">Can</span><span class="r s" style="--d:.3s"> you</span><span class="r s" style="--d:.4s"> summ</span><span class="r s" style="--d:.5s">arise</span><span class="r s" style="--d:.6s"> this</span><span class="r s" style="--d:.7s"> email</span><span class="r s" style="--d:.8s"> for</span><span class="r s" style="--d:.9s"> me</span><span class="r s" style="--d:1s">?</span>
+  </div>
+  <div class="tstats">
+    <div class="stat win r" style="--d:1.1s"><div class="v"><span data-count="9" data-delay="1.1" data-dur="1">0</span></div><div class="k">pieces (tokens) in this short question</div></div>
+    <div class="stat r" style="--d:1.25s"><div class="v">≈ 400</div><div class="k">for a 300-word email, about one page</div></div>
+    <div class="stat r" style="--d:1.4s"><div class="v">¾</div><div class="k">of an English word per token, on average</div></div>
+  </div>
+  <div class="note r" style="--d:1.6s">Approximate · each model splits text in its own way</div>
+</section>
+
+<!-- 8 · Status -->
+<section class="slide" data-sec="02 · The answer">
+  <h2 class="r">Three replies cover <span class="acc">almost every case</span></h2>
+  <div class="codes">
+    <div class="sc ok r" style="--d:.2s"><div class="n">200</div><div class="t">OK</div><div class="s">Here is your answer.</div><div class="an">The dish arrives at the table</div></div>
+    <div class="sc wait r" style="--d:.4s"><div class="n">429</div><div class="t">Too many requests</div><div class="s">Slow down and try again in a moment.</div><div class="an">The kitchen asks you to wait</div></div>
+    <div class="sc err r" style="--d:.6s"><div class="n">500</div><div class="t">Server error</div><div class="s">Something broke on their side.</div><div class="an">The oven stopped; not your fault</div></div>
+  </div>
+</section>
+
+<!-- 9 · Correction -->
+<section class="slide" data-sec="Correction">
+  <div class="fix callout warn r" style="--d:.1s">
+    <div class="k">Correction</div>
+    <div class="s">The video says the AI "remembers your earlier chats". It does not: the app sends the whole conversation again with every request.</div>
+    <div class="pair">
+      <span class="r" style="--d:1s"><span class="strike" style="--sk:1.5s">It remembers</span></span>
+      <span class="r s" style="--d:1.9s">→</span>
+      <span class="acc r s" style="--d:2.1s">The app resends it</span>
+    </div>
+  </div>
+</section>
+
+<!-- 10 · Section 3 -->
+<section class="slide section" data-sec="03 · Start small">
+  <div class="sec-big">3</div>
+  <div class="chap r s">## 03</div>
+  <div class="sec-title split">Start small</div>
+  <div class="sec-sub r" style="--d:1s">One key, one request, one answer: enough to see how it works</div>
+</section>
+
+<!-- 11 · Quickstart -->
+<section class="slide" data-sec="03 · Start small">
+  <h2 class="r">Three steps to <span class="acc">your first answer</span></h2>
+  <div class="qs">
+    <div class="steps">
+      <div class="stp done r" style="--d:.2s"><span class="n">1</span><div class="t">Get a key</div><div class="s">It works like a house key: whoever has it can spend on your account</div></div>
+      <div class="stp done r" style="--d:.45s"><span class="n">2</span><div class="t">Send one request</div><div class="s">Pick a <span class="inl">model</span>, write your question, set <span class="inl">max_tokens</span></div></div>
+      <div class="stp r" style="--d:.7s"><span class="n">3</span><div class="t">Read the reply</div><div class="s">Check the status first: <span class="inl">200</span> means the text is there</div></div>
+    </div>
+    <div class="callout tip r rt" style="--d:1s"><div class="k">Tip</div><div class="s">Set a monthly spending limit before you share the app with anyone.</div></div>
+  </div>
+</section>
+
+<!-- 12 · Closing -->
+<section class="slide closing" data-sec="End">
+  <div class="lgc r s"><img class="logo-img" alt="logo"></div>
+  <h1 class="r" style="--d:.3s;font-size:104px">A short note in,<br><span class="acc">an answer out</span></h1>
+  <div class="r" style="--d:.8s;align-self:flex-start"><span class="cta">Your call to action</span></div>
+</section>
+<!-- SLIDES:END -->
+
+</div>
+
+<script>
+/* BRAND:BEGIN */
+const LOGO="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHBhdGggZmlsbD0iIzhhOTRhNiIgZD0iTTMyIDRsMjQgMTR2MjhMMzIgNjAgOCA0NlYxOHoiLz48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIxMCIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==";
+/* BRAND:END */
+</script>
+<script>
+/* ENGINE-JS:BEGIN - shared by every template. Do not edit: scaling, effects, navigation and controls. */
+document.querySelectorAll('.logo-img').forEach(i=>{if(LOGO)i.src=LOGO;else i.remove()});
+
+/* ---------- Scaling ---------- */
+const stage=document.getElementById('stage');
+function fit(){const s=Math.min(innerWidth/1920,innerHeight/1080);stage.style.transform=`translate(-50%,-50%) scale(${s})`}
+addEventListener('resize',fit);fit();
+
+/* ---------- Letter-by-letter text ---------- */
+document.querySelectorAll('.split').forEach(el=>{
+  const t=el.textContent;el.textContent='';
+  [...t].forEach((c,i)=>{const s=document.createElement('span');s.className='ch';s.style.setProperty('--i',i);s.textContent=c;el.appendChild(s)});
+});
+
+/* ---------- Effects on slide entry ---------- */
+const timers=[];
+function clearTimers(){while(timers.length)clearTimeout(timers.pop())}
+function later(fn,ms){timers.push(setTimeout(fn,ms))}
+function fmt(v,dec){return Number(v).toLocaleString(document.documentElement.lang||'en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec})}
+function countUp(el){
+  const target=parseFloat(el.dataset.count),dec=+(el.dataset.dec||0),pre=el.dataset.prefix||'',dur=(+el.dataset.dur||1.6)*1000,delay=(+el.dataset.delay||.5)*1000;
+  el.textContent=pre+fmt(0,dec);
+  later(()=>{const t0=performance.now();const tick=now=>{const p=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-p,3);el.textContent=pre+fmt(target*e,dec);if(p<1&&el.closest('.slide').classList.contains('active'))requestAnimationFrame(tick)};requestAnimationFrame(tick)},delay);
+}
+function typeIt(el){
+  const txt=el.dataset.type,delay=(+el.dataset.delay||.5)*1000,speed=+el.dataset.speed||70;el.textContent='';
+  later(()=>{let i=0;const iv=setInterval(()=>{if(!el.closest('.slide').classList.contains('active')){clearInterval(iv);return}el.textContent=txt.slice(0,++i);if(i>=txt.length)clearInterval(iv)},speed);timers.push(iv)},delay);
+}
+function race(slide){
+  const lanes=[...slide.querySelectorAll('.lane')];const max=Math.max(...lanes.map(l=>+l.dataset.secs));
+  const SCALE=13; // ms per real second
+  lanes.forEach(l=>{
+    const secs=+l.dataset.secs,bar=l.querySelector('.trk i'),tm=l.querySelector('.tm');
+    bar.style.transition='none';bar.style.width='0';tm.textContent='0:00';
+    later(()=>{
+      const dur=secs*SCALE;bar.style.transition=`width ${dur}ms linear`;bar.style.width=(secs/max*100)+'%';
+      const t0=performance.now();const tick=now=>{const s=Math.min(secs,Math.floor((now-t0)/SCALE));tm.textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+        if(s<secs&&slide.classList.contains('active'))requestAnimationFrame(tick);else if(s>=secs)tm.style.color=l.classList.contains('fast')?'var(--accent-text)':'var(--text)'};
+      requestAnimationFrame(tick);
+    },1200);
+  });
+}
+function onEnter(slide){
+  clearTimers();
+  slide.querySelectorAll('[data-count]').forEach(countUp);
+  slide.querySelectorAll('[data-type]').forEach(typeIt);
+  if(slide.querySelector('#race'))race(slide);
+}
+
+/* ---------- Navigation ---------- */
+const slides=[...document.querySelectorAll('.slide')];let cur=-1;
+const pad=n=>String(n).padStart(2,'0');
+document.getElementById('tot').textContent=pad(slides.length);
+const wipe=document.getElementById('wipe');
+
+/* Previous / next buttons */
+const nav=document.createElement('div');nav.id='nav';
+nav.innerHTML='<button type="button" id="navPrev" aria-label="Previous slide" title="Previous"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>'
+  +'<button type="button" id="navNext" aria-label="Next slide" title="Next"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>';
+document.getElementById('chrome').appendChild(nav);
+const navPrev=document.getElementById('navPrev'),navNext=document.getElementById('navNext');
+navPrev.addEventListener('click',()=>{go(cur-1);navPrev.blur()});
+navNext.addEventListener('click',()=>{go(cur+1);navNext.blur()});
+
+function go(i,force){
+  i=Math.max(0,Math.min(slides.length-1,i));if(i===cur&&!force)return;
+  slides.forEach((s,j)=>{s.classList.toggle('past',j<i);s.classList.remove('active')});
+  const s=slides[i];
+  if(s.classList.contains('section')&&cur!==-1){wipe.classList.remove('go');void wipe.offsetWidth;wipe.classList.add('go')}
+  void s.offsetWidth;s.classList.add('active');cur=i;
+  document.getElementById('cur').textContent=pad(i+1);
+  document.getElementById('prog').style.width=((i+1)/slides.length*100)+'%';
+  document.getElementById('secName').textContent=s.dataset.sec||'';
+  navPrev.disabled=i===0;navNext.disabled=i===slides.length-1;
+  history.replaceState(null,'','#'+(i+1));
+  onEnter(s);
+}
+addEventListener('keydown',e=>{
+  if(['ArrowRight','PageDown',' ','Enter'].includes(e.key)){e.preventDefault();go(cur+1)}
+  else if(['ArrowLeft','PageUp','Backspace'].includes(e.key)){e.preventDefault();go(cur-1)}
+  else if(e.key==='Home')go(0);else if(e.key==='End')go(slides.length-1);
+  else if(e.key==='r'||e.key==='R')go(cur,true);
+  else if(e.key==='f'||e.key==='F'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()}
+  else if(e.key==='h'||e.key==='H')document.getElementById('chrome').classList.toggle('hide');
+});
+addEventListener('click',e=>{if(e.target.closest&&e.target.closest('#nav'))return;e.clientX<innerWidth*.25?go(cur-1):go(cur+1)});
+go((parseInt(location.hash.slice(1))||1)-1);
+/* ENGINE-JS:END */
+</script>
+</body>
+</html>

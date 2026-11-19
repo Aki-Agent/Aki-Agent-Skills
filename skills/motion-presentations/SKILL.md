@@ -90,8 +90,30 @@ If the runtime check passes but `start_browser.js` says no browser answered, tha
 | `templates/pixel-arcade.html` | 8-bit game: pixel sprites, HUD, dialogue box, high scores | Learning by trial and error, gamified training, young audiences | 12 | `#ff3366` / `#ffd23f` / `#3ee0cf` |
 | `templates/social-stories.html` | Social app UI: phone stories, highlights, feed, notifications, poll | Social media, recommendations, digital habits | 12 | `#ff2e63` / `#7b2ff7` / `#ffb800` |
 | `templates/watercolor-storybook.html` | Children's storybook: watercolor washes, chapters, open book, story map | Narrated explainers, beginners, families, gentle introductions | 12 | `#3a7ca5` / `#d1495b` / `#edae49` |
+| `templates/cyber-hud.html` | Sci-fi HUD: amber corner brackets, radar sweep, reticle, lock-on boxes | Self-driving cars, computer vision, drones, sensors, security | 12 | `#ff9f1c` / `#2ee6d6` / `#ff4d6d` |
+| `templates/circuit-board.html` | Green circuit board: self-drawing copper traces, chips, LED grids | Chips, hardware, data centres, energy use of AI | 12 | `#19a974` / `#f5b942` / `#67e8f9` |
+| `templates/dev-docs.html` | Light developer docs: breadcrumbs, code tabs, callouts, status codes | APIs, integrations, how apps talk to an AI, developer onboarding | 12 | `#2563eb` / `#16a34a` / `#d97706` |
+| `templates/neural-lab.html` | Light research explainer: numbered figures, network diagram, charts | How models learn, machine learning basics, research explainers | 13 | `#6d28d9` / `#0d9488` / `#ea580c` |
+| `templates/midnight-mono.html` | Black monochrome launch page: gradient type, light-beam borders, command palette | AI agents, assistants, developer tools, product launches | 12 | `#6e56cf` / `#3ecf8e` / `#f5a524` |
+| `templates/industrial-robotics.html` | Factory floor: concrete, hazard stripes, riveted plates, robot arm, gauges | Robotics, automation, warehouses, manufacturing, IoT | 12 | `#f5b800` / `#0057b8` / `#e4572e` |
 
-Choose by audience and tone, then tell the user which template you chose and why, in one line. If the request does not point to one, use `neon-tech` for technical topics and `editorial-light` for everything else. Slide text in the templates is sample content; its numbers are illustrative.
+Choose by audience and tone, then tell the user which template you chose and why, in one line. Slide text in the templates is sample content; its numbers are illustrative.
+
+Technical topics have several templates; do not default to `neon-tech`. Pick the row that matches the subject, then the one whose look suits the audience. In the same conversation, do not reuse the previous deck's template unless the user asks for it.
+
+| Technical subject | Templates |
+|---|---|
+| AI models, benchmarks, model comparisons | `neon-tech`, `neural-lab`, `sports-broadcast` |
+| How a model learns or decides | `neural-lab`, `bauhaus-geometric`, `chalkboard-class` |
+| AI agents, assistants, developer tools, launches | `midnight-mono`, `saas-aurora` |
+| APIs, integrations, how apps talk to each other | `dev-docs`, `terminal-retro` |
+| Chips, hardware, data centres, energy | `circuit-board`, `isometric-blocks` |
+| Sensors, computer vision, self-driving cars, drones | `cyber-hud`, `blueprint-schematic` |
+| Robots, automation, logistics, manufacturing | `industrial-robotics`, `transit-map` |
+| Code, cybersecurity, IT support | `terminal-retro`, `retro-desktop` |
+| Usage metrics, adoption, reports | `data-dashboard`, `consulting-boardroom` |
+
+If no row fits a technical topic, use `neon-tech` for a dark deck or `dev-docs` for a light one. For anything else, use `editorial-light`.
 
 ## Controls
 
@@ -228,6 +250,12 @@ Reuse the components already in the chosen template: open a sample slide with th
 | `pixel-arcade` | `.hud` with `.heart`, `.bot` (pixel sprite), `.coin`, `.lvl` (level map with `.walker`), `.screens` (`.cab`), `.rpg` (dialogue box), `.hs` (high scores), `.run` (step chart), `.patch`, `.hpbar` with `.fixes` |
 | `social-stories` | `.phone` with `.sbars` (story bars) and `.hearts`, `.hls` (highlights), `.bigring`, `.dots` (dot matrix), `.posts` (scrolling feed) with `.chip`, `.sig` (weights), `.notifs`, `.cmt`, `.poll`, `.prof` |
 | `watercolor-storybook` | `.wash`, `.titlepg`, `.ribbons`, `.cap` (watercolor drop cap), `.book` with `.leaf` (page turn), `.jars` (level = chance), `.mapb` with `.flag`, `.pots` (growing plants), `.anote`, `.moral` |
+| `cyber-hud` | `.hp` (bracketed panel), `.ret` (rotating reticle), `.segs` (segment meter), `.radar` with `.blip`, `.street` with `.lock` (lock-on boxes), `.track` (distance bars), `.prio` with `.scanbar`, `.alert`, `.bar-sweep` |
+| `circuit-board` | `.trace` (`.cu` self-drawing copper, `.sg` travelling signal, `.via`), `.chip` with `.pins`, `.bus3`, `.path`, `.sums`, `.cpu` and `.gpu` (core grids that light up), `.pipe` (flowing lanes), `.anat` with `.lead-ln` callouts, `.lg` (LED grid, one dot = one unit) |
+| `dev-docs` | `.crumbs`, `.ep` with `.meth` (method badge), `.toc` with moving `.ind`, `.callout` (`.note`, `.tip`, `.warn`), `.seq` (sequence diagram with `.msg`), `.code` with `.tabs` and `.ln`, `.key`, `.tok` (token chips), `.stat`, `.sc` (status cards), `.steps` |
+| `neural-lab` | `.net` (self-drawing layered network), `.figbox` with `.figcap`, `.ci` (contents), `.side` (margin note), `.pix` (photo as numbers), `.loss` (self-drawing curve), `.kn` (sliding weights), `.scat` with `.pt` (clustering points) and `.cut`, `.lim` |
+| `midnight-mono` | `.grad` (gradient text), `.pill`, `.kbd`, `.beam` (light running along the border), `.cmdk` (command palette with typed input and moving `.sel`), `.vs2`, `.loop` with orbiting `.orb`, `.trace` with `.st` (spinner, then check), `.perm` with `.chip` |
+| `industrial-robotics` | `.stencil`, `.hz` (moving hazard stripes), `.plate` (riveted panel), `.andon` (tower light), `.floor` with `.pod`, `.carry` and `.bot` (robots seen from above), `.gauge` (needle), `.arm` (robot arm over a conveyor), `.flow` with `.lp` lamps, `.readout` (digital counter) |
 
 Removing a `neon-tech` diagram slide is safe: its script skips missing elements. Timers in new code must use `setTimeout`, `setInterval`, `requestAnimationFrame` or `performance.now`, so the video render can control them; do not use Web Workers or `<video>`.
 
@@ -236,6 +264,8 @@ When you add CSS for a new component:
 - Never put `transform`, `filter` or an `animation` of your own on an element with class `r`: the entrance animation ends at `transform:none` and `filter:none` and replaces them, so the tilt, offset or drop shadow disappears, or the element stays invisible. Use `rotate`, `translate` or `scale` and `box-shadow`, or animate an inner element.
 - Do not name custom properties `--a`, `--d`, `--sd` or `--i`: the engine reads them. Registering `@property --a` hid every `.r` element in a real run.
 - Do not name your own `@keyframes` `up`, `down`, `fromL`, `fromR`, `pop`, `blurIn`, `wipeIn`, `chIn` or `wipe`: DESIGN-CSS comes after the engine and replaces them. A `@keyframes pop{to{scale:1}}` left every `class="r s"` element at opacity 0 in a real run, and `check.js` reported it as `hidden`.
+- Do not name your own classes `hint`, `brand`, `counter`, `progress` or `sec`: the engine positions them for the chrome. A slide element named `.hint` was pinned to the bottom-right corner in a real run, and `check.js` reported it as `chrome_overlap`.
+- `class="r w"` ends at `clip-path:inset(0)`, so anything drawn outside the element's own box, such as a label above a line or an arrowhead, is cut off. Neither `check.js` nor the opacity of the element shows it. Use `r l` or `r rt` there.
 
 ### 5. Verify
 
@@ -360,7 +390,7 @@ node scripts/check.js --html templates/editorial-light.html --sec 8
 node scripts/close_browser.js
 ```
 
-Expected: `ok` for all thirty-four templates and `OK: 15 slides with no problems`.
+Expected: `ok` for all forty templates and `OK: 15 slides with no problems`.
 
 ## Measured runs
 
@@ -374,6 +404,7 @@ One run on Windows with Edge headless and ffmpeg 8.1:
 | `swiss-minimal`, default colors, 12 slides × 3 s, same settings | 1080 frames, 36 s of video, 5.2 MB | 71.5 s (15.1 capture fps) |
 | `isometric-blocks`, default colors, 12 slides × 3 s, same settings | 1080 frames, 36 s of video, 21.5 MB | 84 s (12.9 capture fps) |
 | `watercolor-storybook`, default colors, 12 slides × 3 s, same settings | 1080 frames, 36 s of video, 14.0 MB | 81 s (13.3 capture fps) |
+| `circuit-board`, default colors, 12 slides × 3 s, same settings | 1080 frames, 36 s of video, 9.1 MB | 94 s (11.5 capture fps) |
 
 Capture speed and file size depend on the machine and on the template's effects. Run `--frames 300` first to estimate a long render.
 
@@ -413,3 +444,9 @@ Capture speed and file size depend on the machine and on the template's effects.
 | `pixel-arcade` | 3 | |
 | `social-stories` | 3 | |
 | `watercolor-storybook` | 3 | |
+| `cyber-hud` | 3 | |
+| `circuit-board` | 3 | |
+| `dev-docs` | 3 | |
+| `neural-lab` | 3 | |
+| `midnight-mono` | 3 | |
+| `industrial-robotics` | 3 | |
