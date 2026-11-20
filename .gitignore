@@ -16,6 +16,7 @@ yt-test/
 docx-output/
 document-ocr-output/
 presentation-output/
+video-output/
 *.mp4
 *.pdf
 *.pptx
