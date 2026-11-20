@@ -144,6 +144,7 @@ async function openPage(cdp, job) {
 async function renderJob(cdp, job) {
   const t0 = Date.now();
   const page = await openPage(cdp, job);
+  let part = null;
   try {
     if (page.errors.length) throw new Error(`${path.basename(job.html)}: ${page.errors.join(' | ')}`);
     fs.mkdirSync(path.dirname(path.resolve(job.out)), { recursive: true });
@@ -157,7 +158,7 @@ async function renderJob(cdp, job) {
     const frames = Math.max(1, Math.round((job.dur || 4) * fps));
     // Write to a .part file and rename on success: a killed or failed render must not leave
     // a file at the final path, or the cache in enhance.py would reuse it as finished.
-    const part = path.resolve(job.out) + '.part';
+    part = path.resolve(job.out) + '.part';
     const ff = spawn(FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error',
       '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'png', '-i', '-',
       '-c:v', 'png', '-pix_fmt', 'rgba', '-f', 'mov', part], { stdio: ['pipe', 'inherit', 'pipe'] });
@@ -180,6 +181,7 @@ async function renderJob(cdp, job) {
     fs.renameSync(part, path.resolve(job.out));
     return { out: path.resolve(job.out), frames, fps, seconds: +((Date.now() - t0) / 1000).toFixed(2) };
   } finally {
+    if (part) fs.rmSync(part, { force: true });
     await page.close().catch(() => {});
   }
 }

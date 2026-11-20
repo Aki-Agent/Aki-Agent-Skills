@@ -29,8 +29,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import os
 import re
 import shutil
+import tempfile
 import subprocess
 import sys
 import time
@@ -240,8 +243,16 @@ def render_jobs(events: list[dict], width: int, height: int, fps: float, renders
     jobs_file = renders / "jobs.json"
     jobs_file.write_text(json.dumps(jobs, indent=2, ensure_ascii=False), encoding="utf-8")
     started = time.time()
-    proc = subprocess.run([node, str(RENDERER), "--jobs", str(jobs_file)],
-                          capture_output=True, text=True, encoding="utf-8", errors="replace")
+    command = [node, str(RENDERER), "--jobs", str(jobs_file)]
+    browser = os.environ.get("VIDEO_EDITOR_BROWSER")
+    if browser:
+        command += ["--browser", browser]
+    try:
+        proc = subprocess.run(command, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=1800)
+    except subprocess.TimeoutExpired as exc:
+        raise ToolError("HTML component rendering exceeded the 1800s safety timeout. "
+                        "Reduce the number/duration of components and reuse cached renders.") from exc
     stats["seconds"] = round(time.time() - started, 2)
     if proc.returncode != 0:
         raise ToolError(f"overlay_render.js exited with code {proc.returncode}\n"
@@ -382,7 +393,10 @@ def check_overlays(events: list[dict], video: str, ass: Path | None, width: int,
 # ---------------------------------------------------------------- graph
 
 
-def build_graph(events: list[dict], width: int, height: int, ass: Path | None) -> tuple[list[str], str]:
+def build_graph(
+    events: list[dict], width: int, height: int, ass: Path | None,
+    *, source_label: str = "[0:v]",
+) -> tuple[list[str], str]:
     """Inputs and filter_complex: layouts first, then overlays by layer, subtitles last."""
     inputs: list[str] = []
     parts: list[str] = []
@@ -396,7 +410,8 @@ def build_graph(events: list[dict], width: int, height: int, ass: Path | None) -
     def window(e: dict) -> str:
         return f"between(t,{e['start']:.3f},{e['end']:.3f})"
 
-    cur = "[0:v]"
+    cur = source_label
+    overlay_input_index = 1
     for e in sorted((e for e in events if e["type"] in LAYOUT_TYPES), key=lambda e: e["start"]):
         s, t = e["start"], e["end"]
         main, side, piece, out = label(), label(), label(), label()
@@ -433,7 +448,13 @@ def build_graph(events: list[dict], width: int, height: int, ass: Path | None) -
         parts.append(f"{main}{piece}overlay={person_at[0]}:{person_at[1]}:eof_action=pass:"
                      f"enable='{window(e)}'{placed}")
         inputs += ["-i", e["render"]]
-        parts.append(f"[{len(inputs) // 2}:v]setpts=PTS-STARTPTS+{s:.3f}/TB{panel}")
+        panel_index = overlay_input_index
+        overlay_input_index += 1
+        panel_input = f"[{panel_index}:v]"
+        trim_start = e.get("_render_trim_start")
+        trim_end = e.get("_render_trim_end")
+        trim = (f"trim=start={trim_start:.3f}:end={trim_end:.3f}," if trim_start is not None else "")
+        parts.append(f"{panel_input}{trim}setpts=PTS-STARTPTS+{s:.3f}/TB{panel}")
         parts.append(f"{placed}{panel}overlay={panel_at[0]}:{panel_at[1]}:eof_action=pass:"
                      f"enable='{window(e)}'{out2}")
         cur = out2
@@ -442,7 +463,13 @@ def build_graph(events: list[dict], width: int, height: int, ass: Path | None) -
     for e in sorted(overlays, key=lambda e: (LAYER.get(e["type"], 20), e["start"])):
         inputs += ["-i", e["render"]]
         clip, out = label(), label()
-        parts.append(f"[{len(inputs) // 2}:v]setpts=PTS-STARTPTS+{e['start']:.3f}/TB{clip}")
+        overlay_index = overlay_input_index
+        overlay_input_index += 1
+        overlay_input = f"[{overlay_index}:v]"
+        trim_start = e.get("_render_trim_start")
+        trim_end = e.get("_render_trim_end")
+        trim = (f"trim=start={trim_start:.3f}:end={trim_end:.3f}," if trim_start is not None else "")
+        parts.append(f"{overlay_input}{trim}setpts=PTS-STARTPTS+{e['start']:.3f}/TB{clip}")
         parts.append(f"{cur}{clip}overlay=0:0:eof_action=pass:format=auto:enable='{window(e)}'{out}")
         cur = out
 
@@ -469,6 +496,172 @@ def print_timeline(events: list[dict]) -> None:
         print(f"  {format_time(e['start'])} -> {format_time(e['end'])}  {e['type']:<10} {detail}")
 
 
+def _ass_seconds(value: str) -> float:
+    hours, minutes, seconds = value.split(":")
+    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+
+def _ass_timestamp(seconds: float) -> str:
+    centiseconds = max(0, int(seconds * 100))
+    hours, rest = divmod(centiseconds, 360000)
+    minutes, rest = divmod(rest, 6000)
+    whole, fraction = divmod(rest, 100)
+    return f"{hours}:{minutes:02d}:{whole:02d}.{fraction:02d}"
+
+
+def _slice_ass(source: Path | None, start: float, end: float, destination: Path) -> Path | None:
+    """Copy an ASS subtitle file with events clipped and shifted to a chunk."""
+    if source is None:
+        return None
+    output: list[str] = []
+    for line in source.read_text(encoding="utf-8-sig").splitlines():
+        if not line.startswith("Dialogue:"):
+            output.append(line)
+            continue
+        fields = line[len("Dialogue:"):].strip().split(",", 9)
+        if len(fields) != 10:
+            raise ToolError(f"Malformed ASS Dialogue line in {source}: {line[:100]}")
+        try:
+            cue_start = _ass_seconds(fields[1])
+            cue_end = _ass_seconds(fields[2])
+        except ValueError as exc:
+            raise ToolError(f"Malformed ASS timestamp in {source}: {line[:100]}") from exc
+        clipped_start, clipped_end = max(start, cue_start), min(end, cue_end)
+        if clipped_end <= clipped_start:
+            continue
+        fields[1] = _ass_timestamp(clipped_start - start)
+        fields[2] = _ass_timestamp(clipped_end - start)
+        output.append("Dialogue: " + ",".join(fields))
+    destination.write_text("\n".join(output) + "\n", encoding="utf-8")
+    return destination
+
+
+def _chunk_events(events: list[dict], start: float, end: float) -> list[dict]:
+    """Clip global enhancement events to a chunk-local timeline."""
+    selected: list[dict] = []
+    for event in events:
+        absolute_start, absolute_end = float(event["start"]), float(event["end"])
+        overlap_start, overlap_end = max(start, absolute_start), min(end, absolute_end)
+        if overlap_end <= overlap_start:
+            continue
+        clipped = dict(event)
+        clipped["start"] = round(overlap_start - start, 6)
+        clipped["end"] = round(overlap_end - start, 6)
+        if event["type"] != "punch":
+            clipped["_render_trim_start"] = max(0.0, overlap_start - absolute_start)
+            clipped["_render_trim_end"] = min(absolute_end - absolute_start, overlap_end - absolute_start)
+        selected.append(clipped)
+    return selected
+
+
+def _encode_enhanced_chunks(
+    *, video: Path, events: list[dict], output: Path,
+    width: int, height: int, fps: float, duration: float,
+    crf: int, preset: str, ass: Path | None, audio_info: dict | None,
+    renders_dir: Path, chunk_seconds: float, chunk_timeout: float, started: float,
+) -> dict:
+    """Compose short closed MP4 chunks and concatenate their video without re-encoding.
+
+    The input is sought to each chunk start. Event windows, rendered overlay
+    media and ASS cues are clipped and shifted into that chunk's local timeline;
+    only matching event clips are added as inputs. This avoids the sandbox's
+    short wall-time ceiling while preserving one visual composition per frame.
+    """
+    if chunk_seconds <= 0:
+        raise ToolError(f"--chunk-seconds must be greater than zero (got {chunk_seconds}).")
+    if chunk_timeout <= 0:
+        raise ToolError(f"--chunk-timeout must be greater than zero (got {chunk_timeout}).")
+    if output.suffix.lower() != ".mp4":
+        raise ToolError("--chunked enhancement requires an MP4 output for temporary chunks.")
+    chunk_total = max(1, int(math.ceil(duration / chunk_seconds)))
+    if chunk_total > 400:
+        raise ToolError(f"Chunked enhancement requires {chunk_total} chunks; maximum is 400.")
+    sample_rate = int((audio_info or {}).get("sample_rate") or 48000)
+    channels = int((audio_info or {}).get("channels") or 2)
+    audio_bitrate = "192k"
+
+    with tempfile.TemporaryDirectory(prefix=f".{output.stem}.chunks-", dir=output.parent) as temp:
+        work = Path(temp)
+        chunks: list[Path] = []
+        for index in range(chunk_total):
+            start = index * chunk_seconds
+            end = min(duration, (index + 1) * chunk_seconds)
+            local_events = _chunk_events(events, start, end)
+            for event in local_events:
+                if event["type"] != "split":
+                    continue
+                candidates = [
+                    Path(event["render"]) if event.get("render") else None,
+                    *renders_dir.glob(f"{event['index']:02d}_split_*.mov"),
+                ]
+                panel_render = next((item for item in candidates if item and item.is_file()), None)
+                if panel_render is None:
+                    raise ToolError(
+                        f"Could not locate rendered panel for split event {event['index']}; "
+                        "re-render the component clips or disable --chunked."
+                    )
+                event["render"] = str(panel_render)
+            local_ass = _slice_ass(ass, start, end, work / f"subs-{index:04d}.ass")
+            overlay_inputs, graph = build_graph(
+                local_events, width, height, local_ass, source_label="[vsrc]"
+            )
+            local_graph = work / f"filter-{index:04d}.txt"
+            local_graph.write_text(
+                "[0:v]setpts=PTS-STARTPTS[vsrc];\n" + graph,
+                encoding="utf-8",
+            )
+            chunk = work / f"{index:04d}.mp4"
+            cmd = ["-ss", f"{start:.6f}", "-i", str(video), *overlay_inputs,
+                   "-t", f"{end - start:.6f}", "-filter_complex_script", str(local_graph),
+                   "-map", "[vout]"]
+            if audio_info:
+                cmd += ["-map", "0:a:0", "-af", "aresample=async=1:first_pts=0",
+                        "-c:a", "aac", "-b:a", audio_bitrate,
+                        "-ar", str(sample_rate), "-ac", str(channels)]
+            else:
+                cmd += ["-an"]
+            cmd += [
+                "-c:v", "libx264", "-crf", str(crf), "-preset", preset,
+                "-pix_fmt", "yuv420p", "-threads", "1", "-r", f"{fps:.6f}",
+                "-fps_mode", "cfr", "-movflags", "+faststart", str(chunk),
+            ]
+            run_ffmpeg(cmd, timeout=chunk_timeout)
+            chunks.append(chunk)
+
+        manifest = work / "concat.txt"
+        manifest.write_text(
+            "".join("file '" + str(path.resolve()).replace("'", "'\\''") + "'\n" for path in chunks),
+            encoding="utf-8",
+        )
+        concat = ["-f", "concat", "-safe", "0", "-i", str(manifest), "-map", "0:v:0"]
+        if audio_info:
+            concat += ["-map", "0:a:0"]
+        # Independent audio chunks carry AAC priming packets; re-encode only
+        # audio at concat so the final audio clock aligns with the copied video.
+        if audio_info:
+            concat += ["-c:v", "copy", "-c:a", "aac", "-b:a", audio_bitrate]
+        else:
+            concat += ["-c:v", "copy"]
+        concat += ["-movflags", "+faststart", str(output)]
+        run_ffmpeg(concat, timeout=chunk_timeout)
+
+    report = output_report(output, started, {
+        "chunked": True,
+        "chunk_seconds": chunk_seconds,
+        "chunk_timeout_seconds": chunk_timeout,
+        "chunk_count": chunk_total,
+        "expected_duration_seconds": round(duration, 3),
+    })
+    if report.get("probe_error"):
+        raise ToolError(f"Completed chunked output could not be probed: {report['probe_error']}")
+    actual = report.get("duration_seconds")
+    if actual is None or abs(actual - duration) > 0.25:
+        raise ToolError(
+            f"Chunked output duration is {actual}s; expected {duration:.3f}s (tolerance 0.25s)."
+        )
+    return report
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compose HTML components, zooms and split layouts over a video.")
     parser.add_argument("plan", help="Enhancement plan JSON")
@@ -481,6 +674,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--crf", type=int, default=20)
     parser.add_argument("--preset", default="medium")
     parser.add_argument("--json", help="Write the report as JSON")
+    parser.add_argument("--chunked", action="store_true",
+                        help="Encode short output clips then concat by stream copy")
+    parser.add_argument("--chunk-seconds", type=float, default=8.0,
+                        help="Maximum output span per chunk when --chunked (default 8s)")
+    parser.add_argument("--chunk-timeout", type=float, default=30.0,
+                        help="Seconds allowed for each FFmpeg chunk (default 30; lower chunk size if exceeded)")
     args = parser.parse_args(argv)
 
     started = time.time()
@@ -509,6 +708,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         out = Path(args.output) if args.output else video.with_name(f"{video.stem}_enhanced.mp4")
+        if out.resolve() == video.resolve():
+            raise ToolError("Output path must differ from the input video; the source is never overwritten.")
         renders = Path(args.renders_dir) if args.renders_dir else out.with_name(f"{out.stem}_renders")
         _, stats = render_jobs(events, width, height, fps, renders)
         print(f"  renders: {stats['rendered']} rendered, {stats['reused']} reused, {stats['seconds']}s")
@@ -529,14 +730,38 @@ def main(argv: list[str] | None = None) -> int:
         cmd += ["-c:v", "libx264", "-crf", str(args.crf), "-preset", args.preset, "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart", str(out)]
         encode_started = time.time()
-        run_ffmpeg(cmd)
+        if args.chunked:
+            report = _encode_enhanced_chunks(
+                video=video,
+                events=events,
+                output=out,
+                width=width,
+                height=height,
+                fps=fps,
+                duration=duration,
+                crf=args.crf,
+                preset=args.preset,
+                ass=ass,
+                audio_info=stream_of(info, "audio"),
+                renders_dir=renders,
+                chunk_seconds=args.chunk_seconds,
+                chunk_timeout=args.chunk_timeout,
+                started=started,
+            )
+        else:
+            run_ffmpeg(cmd)
+            report = None
         encode_seconds = round(time.time() - encode_started, 2)
 
-        report = output_report(out, started, {
+        report = report or output_report(out, started)
+        report.update({
             "source": str(video), "plan": str(plan_path), "subtitles": str(ass) if ass else None,
             "events": [{k: v for k, v in e.items() if k not in ("params", "panel_params")} for e in events],
             "renders": stats, "checks": checks, "encode_seconds": encode_seconds,
             "expected_duration_seconds": round(duration, 3),
+            "chunked": bool(args.chunked),
+            "chunk_seconds": args.chunk_seconds if args.chunked else None,
+            "chunk_timeout_seconds": args.chunk_timeout if args.chunked else None,
         })
         if args.json:
             write_json(report, args.json)

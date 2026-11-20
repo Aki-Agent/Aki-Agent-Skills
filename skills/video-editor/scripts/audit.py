@@ -44,9 +44,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import subprocess
 import sys
+import time
 import unicodedata
 from pathlib import Path
 
@@ -91,9 +93,14 @@ STOPWORDS = {
 ISOLATED_CODE = r"""
 import json, sys
 from faster_whisper import WhisperModel
-audio, language, model_name = sys.argv[1], sys.argv[2], sys.argv[3]
-model = WhisperModel(model_name, device="cpu", compute_type="int8")
-segments, info = model.transcribe(audio, language=language, word_timestamps=True)
+audio, language, model_name, cache = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+kwargs = {"device": "cpu", "compute_type": "int8", "cpu_threads": 2, "num_workers": 1}
+if cache:
+    kwargs["download_root"] = cache
+    kwargs["local_files_only"] = True
+model = WhisperModel(model_name, **kwargs)
+segments, info = model.transcribe(audio, language=language, word_timestamps=True,
+                                  beam_size=3, vad_filter=True, condition_on_previous_text=False)
 words = []
 for segment in segments:
     for word in segment.words or []:
@@ -318,8 +325,45 @@ def signal_mechanical(words: list[dict]) -> list[dict]:
     return found
 
 
+_LOCAL_MODELS: dict[tuple[str, str], object] = {}
+
+
+def _listen_local(audio: Path, language: str, model_name: str,
+                  cache_dir: str | None) -> dict:
+    """Transcribe one isolated window while reusing the cached local model."""
+    from faster_whisper import WhisperModel
+
+    key = (model_name, cache_dir or "")
+    if key not in _LOCAL_MODELS:
+        options = {
+            "device": "cpu", "compute_type": "int8", "cpu_threads": 2,
+            "num_workers": 1,
+        }
+        if cache_dir:
+            options["download_root"] = cache_dir
+            options["local_files_only"] = True
+        _LOCAL_MODELS[key] = WhisperModel(model_name, **options)
+    engine = _LOCAL_MODELS[key]
+    segments, _ = engine.transcribe(
+        str(audio), language=None if language == "auto" else language,
+        beam_size=3, word_timestamps=True, vad_filter=True,
+        condition_on_previous_text=False,
+    )
+    words = []
+    for segment in segments:
+        for word in segment.words or []:
+            words.append({
+                "word": word.word,
+                "start": round(float(word.start), 3),
+                "end": round(float(word.end), 3),
+                "probability": round(float(word.probability or 0), 4),
+            })
+    return {"words": words}
+
+
 def listen(source: Path, start: float, end: float, python: str,
-           language: str, model: str, workdir: Path) -> dict:
+           language: str, model: str, workdir: Path, cache_dir: str | None = None,
+           local_fallback: bool = False) -> dict:
     """Re-transcribe a window in isolation and report what is really there.
 
     A short clip removes the long-recording context that makes a recognizer skip
@@ -328,19 +372,32 @@ def listen(source: Path, start: float, end: float, python: str,
     """
     window = max(0.0, start - 1.5)
     length = (end + 1.5) - window
-    audio = workdir / "_listen.wav"
-    run_ffmpeg([
-        "-ss", f"{window:.3f}", "-t", f"{length:.3f}", "-i", str(source),
-        "-vn", "-ac", "1", "-ar", "16000", "-y", str(audio),
-    ])
-    proc = subprocess.run(
-        [python, "-c", ISOLATED_CODE, str(audio), language, model],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-    )
-    audio.unlink(missing_ok=True)
-    if proc.returncode != 0:
-        return {"error": (proc.stderr or proc.stdout or "").strip()[-400:]}
-    payload = json.loads(proc.stdout.strip().splitlines()[-1])
+    audio = workdir / f"_listen-{os.getpid()}-{time.time_ns()}.wav"
+    try:
+        run_ffmpeg([
+            "-ss", f"{window:.3f}", "-t", f"{length:.3f}", "-i", str(source),
+            "-vn", "-ac", "1", "-ar", "16000", "-y", str(audio),
+        ], timeout=60)
+    except ToolError as exc:
+        return {"error": str(exc)[-400:]}
+    try:
+        if local_fallback and python == sys.executable:
+            payload = _listen_local(audio, language, model, cache_dir)
+        else:
+            proc = subprocess.run(
+                [python, "-c", ISOLATED_CODE, str(audio), language, model, cache_dir or ""],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=300,
+            )
+            if proc.returncode != 0:
+                return {"error": (proc.stderr or proc.stdout or "").strip()[-400:]}
+            payload = json.loads(proc.stdout.strip().splitlines()[-1])
+    except subprocess.TimeoutExpired:
+        return {"error": "isolated transcription exceeded the 300s safety timeout"}
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        audio.unlink(missing_ok=True)
     for word in payload["words"]:
         word["start"] = round(word["start"] + window, 3)
         word["end"] = round(word["end"] + window, 3)
@@ -438,7 +495,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--listen", action="store_true",
                         help="Re-transcribe each candidate window in isolation")
     parser.add_argument("--language", default="es")
-    parser.add_argument("--model", default="small")
+    parser.add_argument("--model", help="Whisper model (local audit fallback prefers cached base)")
+    parser.add_argument("--no-local-fallback", dest="local_fallback", action="store_false",
+                        help="Fail if the sibling transcription skill/interpreter is unavailable")
+    parser.set_defaults(local_fallback=True)
     parser.add_argument("--json")
     args = parser.parse_args(argv)
 
@@ -453,17 +513,40 @@ def main(argv: list[str] | None = None) -> int:
 
         listen_args = None
         if args.listen:
+            local_fallback = False
             if not args.video:
                 raise ToolError("--listen needs --video to extract the windows from.")
             source = require_input(args.video)
-            from transcribe import locate_python, locate_skill
-            skill = locate_skill()
+            from transcribe import _cached_model_path, default_cache_dir, locate_python, locate_skill
+            cache = default_cache_dir()
+            try:
+                skill = locate_skill()
+                python = locate_python(skill)
+            except ToolError as backend_error:
+                if not args.local_fallback:
+                    raise ToolError(
+                        f"{backend_error}\nUse the local faster-whisper fallback or install the sibling skill."
+                    ) from backend_error
+                python = sys.executable
+                local_fallback = True
+            model_name = args.model or ("base" if _cached_model_path(cache, "base") else "small")
+            if cache:
+                cached = _cached_model_path(cache, model_name)
+                if cached:
+                    model_name = str(cached)
+                elif local_fallback:
+                    raise ToolError(
+                        f"Whisper model {model_name!r} is not cached under {cache}; "
+                        "populate the cache or install the sibling transcription skill."
+                    )
             listen_args = {
                 "source": source,
-                "python": locate_python(skill),
+                "python": python,
                 "language": args.language,
-                "model": args.model,
+                "model": model_name,
                 "workdir": ensure_output_dir(Path(args.output_dir)),
+                "cache_dir": str(cache) if local_fallback else None,
+                "local_fallback": local_fallback,
             }
 
         candidates = collect(transcript, listen_args)

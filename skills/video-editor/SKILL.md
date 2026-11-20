@@ -1,6 +1,6 @@
 ---
 name: video-editor
-description: Edits video files locally with FFmpeg — inspect orientation, length and content type, remove silence, clean the spoken script, review and correct a transcript, burn subtitles in a measured position, add HTML-rendered callouts, badges, screenshots and b-roll cutaways, punch-in zooms and split person/content layouts, trim, concatenate, extract or replace audio, transcode for delivery, and export still frames — without uploading media anywhere. Use when a user asks to cut, join, compress, resize, mute, re-voice, de-silence, caption, enhance or inspect a video, wants key points, images or graphics shown over a talking head, or needs frames or a contact sheet from one.
+description: Edits video files locally with FFmpeg — inspect orientation, length and content type, remove silence with an adjustable tightness profile, clean the spoken script, transcribe with a sibling skill or cached local faster-whisper fallback, review and correct a transcript, burn duration-bounded subtitles, add HTML-rendered callouts, badges, screenshots and b-roll cutaways, punch-in zooms and split person/content layouts, trim, concatenate, extract or replace audio, transcode for delivery, and export still frames — without uploading media anywhere. Use when a user asks to cut, join, compress, resize, mute, re-voice, de-silence, caption, enhance or inspect a video, wants key points, images or graphics shown over a talking head, or needs frames or a contact sheet from one.
 ---
 
 # Video Editor
@@ -16,8 +16,9 @@ Local, deterministic video editing with FFmpeg. Nothing is uploaded: the scripts
 | All scripts | `ffmpeg` and `ffprobe` on `PATH`, Python 3.9+ |
 | Encoding H.264 / H.265 | An FFmpeg build with `libx264` / `libx265` (the default Gyan, Homebrew and distro builds have them) |
 | `enhance` (components) | Node 22+ (native `WebSocket` and `fetch`) and Edge or Chrome discoverable by the renderer |
+| Local ASR fallback | `faster-whisper`; the default transcriber uses the sibling `video_transcription` skill when it is installed |
 
-No Python packages are installed: the scripts use the standard library only. `ffmpeg_lib.tool_path` honors `FFMPEG_PATH` and `FFPROBE_PATH` when the binaries are not on `PATH`.
+No Python packages are required for the FFmpeg-only operations: they use the standard library. The optional local ASR fallback needs `faster-whisper` and an already cached model unless `--download-model` is explicitly supplied. `ffmpeg_lib.tool_path` honors `FFMPEG_PATH` and `FFPROBE_PATH` when the binaries are not on `PATH`.
 
 ## Workflow: always recon before cutting
 
@@ -45,7 +46,7 @@ One CLI, one subcommand per operation. Every subcommand prints a readable report
 |---|---|
 | `analyze` | Recon: orientation, length, framing bars, content segments, optional contact sheet. |
 | `silence` | Detects silence and rebuilds the cut without it. `--plan-only` shows the cut plan first. |
-| `transcribe` | Transcribes with the `video_transcription` skill and writes a timecoded script. |
+| `transcribe` | Uses `video_transcription` when installed, otherwise can fall back to local faster-whisper and writes a timecoded script. |
 | `audit` | Finds where the script stops making sense (swallowed speech, abandoned clauses, repeats) and can re-listen each window in isolation. |
 | `script_read` | Turns a transcript into a word-indexed script plus an empty cut list to fill by hand. |
 | `script_cut` | Applies a hand-written cut list (word indices or seconds) and rebuilds the video. |
@@ -77,10 +78,12 @@ The content labels are `screen-recording`, `animation`, `filmed` or `unclear`, d
 
 ```bash
 # 1. Look at the plan before touching the file
-python3 scripts/silence.py INPUT --plan-only
+python3 scripts/silence.py INPUT --plan-only --json video-output/silence-plan.json
 
-# 2. Then write the cut
-python3 scripts/silence.py INPUT --output video-output/tight.mp4
+# 2. Write a tighter, but still editable, cut. Use this chunked form on short-lived runners.
+python3 scripts/silence.py INPUT --min-silence 0.8 --pad 0.08 \
+    --chunked --chunk-seconds 8 --chunk-timeout 30 \
+    --output video-output/tight.mp4 --json video-output/tight.report.json
 ```
 
 Two stages, deliberately separate: `silencedetect` reports silent runs, those become a list of ranges to **keep**, and only then are those ranges trimmed and concatenated in one filter graph. Nothing is written in `--plan-only` mode.
@@ -88,13 +91,16 @@ Two stages, deliberately separate: `silencedetect` reports silent runs, those be
 | Flag | Default | Notes |
 |---|---|---|
 | `--noise` | `-30dB` | Silence threshold. Use `-35dB` or lower for a noisy room, `-25dB` for a quiet one. |
-| `--min-silence` | `0.6` | Only cut pauses at least this long. Raise it to keep breathing room. |
-| `--pad` | `0.15` | Silence kept on each side of speech, so cuts do not clip consonants |
+| `--min-silence` | `0.8` | Minimum silent run to remove. On the 253 s sandbox video this removed 67.3 s (26.6%), 21.7 s more than the previous `2.0` s / `0.20` s-pad edit. Use `0.6` s to cut more short pauses (74.8 s removed, 29.6%); use `1.0-1.5` s to preserve more natural pauses (52.8-61.5 s removed). |
+| `--pad` | `0.08` | Silence retained on each side of speech. This is tighter than the old `0.15` s default; use `0.12-0.20` s for gentler pacing. A reduced pad trims silence around speech, not the words themselves. |
+| `--chunked` | off | Encode short, closed MP4 clips and concatenate by stream copy. Use for long renders on execution hosts with short per-process limits. |
+| `--chunk-seconds` | `8` | Maximum source seconds per clip with `--chunked`. If any chunk approaches the execution limit, lower this (e.g. 4-6 s); raise only after measuring. |
+| `--chunk-timeout` | `30` | Maximum wall seconds per FFmpeg chunk, below the measured ~40 s outer limit. Lower `--chunk-seconds` if the timeout is reached. |
 | `--start` / `--end` | whole file | Process a window only |
 | `--plan-only` | off | Detect and print the timeline, write nothing |
 | `--crf` / `--preset` | `20` / `veryfast` | Re-encode settings for the rebuilt file |
 
-The rebuild re-encodes video and audio so every cut lands on an exact frame and the two streams stay aligned. It refuses a file with no audio track, a range that would produce an empty output, and more than 400 keep-ranges (raise `--min-silence` to merge short pauses).
+The rebuild re-encodes video and audio so every cut lands on an exact frame and the two streams stay aligned. `--chunked` encodes each kept range in short chunks and stream-copy concatenates them; every chunk is independently closed before the next starts. It refuses an empty output and more than 400 keep-ranges. The plan JSON records cut settings and whether chunking was requested. A cut profile changes only detected silence: it never auto-removes repeated words or phrases. Verify output with `ffprobe` and a complete decode; a present/nonempty MP4 is not proof that its container was finalized.
 
 ### Script pass: transcribe, audit, read, cut
 
@@ -115,12 +121,12 @@ python3 scripts/script_read.py video-output/tight.json --video tight.mp4 \
 # 4. Read the .script.md and the .audit.md, write the cuts, then apply them
 python3 scripts/script_cut.py video-output/tight.cuts.json --video tight.mp4 --plan-only
 python3 scripts/script_cut.py video-output/tight.cuts.json --video tight.mp4 \
-    --output video-output/final.mp4
+    --chunked --output video-output/final.mp4
 ```
 
 **Transcribe the file you are going to cut.** Word timestamps are absolute, so transcribing the original and cutting the de-silenced version puts every boundary in the wrong place. Both `script_read` and `script_cut` warn when the transcript length does not match the video.
 
-`transcribe` does not reimplement speech recognition: it locates the `video_transcription` skill, runs its `transcribe_video.py`, and reshapes the JSON into a timecoded script. Lookup order is `VIDEO_TRANSCRIPTION_DIR`, then `skills/` and `skill/` next to this skill, then the same names above the working directory. Its `.venv` is used when present.
+`transcribe` prefers the `video_transcription` skill: it locates `transcribe_video.py`, runs it and reshapes the JSON into a timecoded script. Lookup order is `VIDEO_TRANSCRIPTION_DIR`, then `skills/` and `skill/` next to this skill, then the same names above the working directory. Its `.venv` is used when present. If the sibling skill or its Python is unavailable, the built-in `local_transcribe.py` fallback uses an installed `faster-whisper` package when available. It defaults to the cached model under `/workspace/.cache/whisper` in this sandbox, CPU `int8`, two threads, and offline cache-only mode; it does not install packages or download weights unless `--download-model` is supplied. If no cached model exists, it fails clearly rather than waiting on a model download. In this sandbox the fallback prefers a cached `base` model for speed; pass `--model small` when a more accurate second pass is worth the additional runtime. The public flow remains usable without `faster-whisper` when the sibling skill is installed.
 
 ### Finding the cuts: `audit`
 
@@ -166,6 +172,7 @@ Cuts are written by word index, which is stable and does not require computing s
 | `--pad` | `0.05` | Seconds added on each side of a cut, so the join does not clip a phoneme |
 | `--plan-only` | off | Resolve and print the cuts, write nothing |
 | `--only-reasons` | unset | Apply only cuts whose `reason` contains one of these tags |
+| `--chunked` / `--chunk-seconds` / `--chunk-timeout` | off / `8` / `30` | Encode short MP4 parts and concatenate by stream copy; use on execution hosts that interrupt one long FFmpeg process. Lower chunk length if any part reaches its timeout. |
 | `--transcript` | from the cut list | Override the transcript used to resolve word indices |
 
 The result is re-transcribed once to confirm the sentence now reads correctly. That check is the point of the pass: the measurement is the transcript, not an assumption.
@@ -185,9 +192,10 @@ python3 scripts/subtitles.py build video-output/final.json \
     --corrections video-output/final.corrections.json --video video-output/final.mp4 \
     --output-dir video-output
 
-# 4. Burn the styled ASS
+# 4. Burn the styled ASS. Use --chunked on short-lived execution hosts.
 python3 scripts/subtitles.py burn video-output/final.mp4 \
-    --ass video-output/final.subs.ass --output video-output/final_subs.mp4
+    --ass video-output/final.subs.ass --chunked --chunk-seconds 8 --chunk-timeout 30 \
+    --output video-output/final_subs.mp4
 ```
 
 #### What `review` flags, and why the rules are narrow
@@ -211,7 +219,7 @@ Corrections are written in two forms, both keeping the original timings so text 
 }
 ```
 
-`replacements` rewrites every occurrence of a token; `words` overrides one token by index. The build report lists every applied change with its reason, so a wrong correction is visible rather than silent.
+`replacements` rewrites every occurrence of a token; `words` overrides one token by index. The build report lists every applied change with its reason, so a wrong correction is visible rather than silent. When `--video` is supplied, reading-speed holds are capped at the last representable ASS centisecond within that video's probed duration. A transcript word starting at or after the end, or a cue that cannot fit one positive centisecond, is rejected instead of silently producing an out-of-range subtitle.
 
 `glue` merges a run of tokens into one. The recognizer splits figures and decimals across words: `una 30 -90` and `$60 .000 .000 .000` arrive as separate tokens, and rewriting either half alone leaves the other on screen. Merging drops the absorbed tokens and stretches the first one to the end time of the last, so the cue does not end early and shorten the read. Measured on the test recordings: `30 -90` → `3090`, `4 ,5` → `4,5` (twice), `$60 .000 .000 .000` → `$60.000.000.000`.
 
@@ -340,6 +348,8 @@ Run it on the cut that the subtitles were built from, and pass that ASS with `--
 | `zoom`, `center` | Punch-in factor (1.0-2.0) and the point to zoom on, as shares of the frame. |
 | `person`, `person_y` / `person_x` | Split side (`top`/`bottom` on vertical, `left`/`right` on horizontal) and where the person crop starts. |
 | `items[].at` | Seconds after the panel opens when a list item appears: sync it to the word that names it. |
+
+Use `--chunked --chunk-seconds 8 --chunk-timeout 30` when an execution host limits the wall time of one FFmpeg process. The enhancement is composed per output chunk: overlapping events and ASS cues are clipped to the chunk timeline, only relevant rendered clips are passed to FFmpeg, then the MP4 chunks are concatenated by stream copy. `subtitles.py burn` exposes the same chunk options for standalone subtitle burns; `--max-width` is not supported in its chunked mode, so transcode first if downscaling is needed. Component HTML renders still run before encoding; cache them and avoid repeating changed/unnecessary renders. As for any edit, validate duration and fully decode the final file.
 
 `--plan-only` rejects with exit code 2 and one line per problem: a missing image or component, an event outside the video, `end` before `start`, a split side that does not exist for the orientation, an unknown type, and a punch or split overlapping another punch or split. Both rewrite the base picture, so two of them at the same moment are refused instead of composed in an undefined order. Overlays (cards, badges, b-roll) may sit on top of a split.
 
@@ -533,6 +543,13 @@ Single machine, FFmpeg 8.1.2 (Gyan build), Windows, local SSD. Use these as orde
 | `analyze` (12 samples) | 146 s, 3840x2160 H.264 | 2 segments, contact sheet | 7.6 s |
 | `silence` ground-truth check | 11 s synthetic clip, silences at 2-5 s and 7-9 s | 6.6 s output, ranges cut exactly | 0.8 s |
 | `silence --plan-only` | 253 s file | 44 silences, 43 keep-ranges | 1.5 s |
+| Sandbox plan, previous edit `--min-silence 2.0 --pad 0.20` | 253 s, 480x854 H.264/AAC | 11 runs, 45.5 s removed (18%) | 2.1 s |
+| Sandbox plan, `--min-silence 0.8 --pad 0.08` | same file | 30 runs, 67.3 s removed (27%) | 2.2 s |
+| Sandbox plan, `--min-silence 0.6 --pad 0.08` | same file | 44 runs, 74.8 s removed (30%) | 2.4 s |
+| Sandbox chunked enhancement | 24 s, 480x854, 2 overlays + 3 subtitle cues | 2 chunks; 24.056 s output | 47.4 s (components 38.0 s, encode 6.7 s) |
+| Sandbox chunked split layout | same source, one split panel | 2 chunks; 24.056 s output | 6.0 s after panel render cache hit |
+| Sandbox local transcript fallback | 24 s, Spanish, cached base, CPU int8 | 4 segments, 53 word timestamps | 6.3 s |
+| Sandbox chunked silence edit | 24 s, 480x854, 4 silent runs | 18.356 s output; full decode passed | 5.2 s |
 | `silence` full rebuild | same file | 184.3 s output, 68.8 s removed (27%) | 34 s |
 | `silence` 60 s window | same file | 48.1 s output, 11.9 s removed | 3.5 s |
 | `trim --copy` 5 s | same file | 3.8 MiB clip | 0.28 s |
@@ -565,10 +582,23 @@ Enhancement timings, same machine, Edge headless, 177.2 s 720x1280 cut with 17 e
 | `enhance`, first complete run | 8 clips rendered (5 more cached by an interrupted run), checks, one encode with subtitles | render 141.9 s, encode 21.2 s, total 174.8 s |
 | `enhance`, after editing 6 callouts and the screenshot | 7 clips re-rendered, 6 reused | render 42.8 s, encode 21.4 s, total 69.8 s |
 
+## Sandbox execution notes
+
+The following behavior was measured in an Ubuntu sandbox with Python 3.12.3, Node 22.23.4, FFmpeg/ffprobe 6.1.1, libx264/libass and Chrome. These are environment-specific observations, not requirements for all users:
+
+- A per-command outer executor interrupted long FFmpeg invocations around 40 s, leaving invalid MP4s. A 253 s, 480x854 H.264/AAC source with 13 sections was rebuilt by independently encoding short MP4 parts and concat-demuxing them. Use `--chunked --chunk-seconds 8 --chunk-timeout 30`; do not launch FFmpeg in a detached background process, because the caller can be interrupted while the detached process survives unpredictably. The `~40 s` observation is an outer limit, not a guaranteed process timeout. Chunk timeouts bound each FFmpeg invocation, not the full sequential Python operation; a single `exec_command` call is limited to 300 s here. If measured total work is likely to exceed the caller's limit, split work into separate bounded invocations and validate the final concat rather than assuming chunking bounds the whole job.
+- The chunked enhancement path was verified on a 24 s synthetic 480x854 source with callouts, a badge, ASS cues spanning a chunk boundary, and a split-panel layout. Full FFmpeg decode passed; container duration was 24.056 s against a 24.033 s source. Video starts at 0.023 s from MP4 frame timing; audio starts at zero and remains within the 0.25 s acceptance tolerance.
+- The chunked enhancement path was rerun with 8 s chunks, cache hits and full decode: both an overlays+subtitles render and a split-panel render completed in about 9-12 s. Video is stream-copied at concat; AAC audio is re-encoded once at concat to handle independent encoder priming. Check per-stream timing and full decode, not container duration alone.
+- `ffmpeg -nostats -loglevel error` limits progress output in constrained command runners. `ffmpeg_lib.run_ffmpeg` writes to a same-directory, uniquely named temporary whose filename still ends in the output container suffix, renaming it to the requested path only after FFmpeg returns zero and the temporary is nonempty. Failed renders do not publish a partial at the final path; an externally killed process may leave a `.part-...` file.
+- `python3` resolves to `/opt/aki-python/bin/python3` (Python 3.12.3) and imports `faster-whisper 1.2.1`; use that interpreter explicitly if another Python is placed first on `PATH`. The model cache is `/workspace/.cache/whisper`, with cached `base`/`small` snapshots; CPU `int8` works. The sibling `video_transcription` skill was absent. `transcribe.py` discovers these snapshots and runs cache-only by default; avoid downloading a new model during routine edits. A 20 s Spanish smoke test with cached `base` yielded 44 word timestamps in 5.25 s; previous 253 s and 212 s passes took 45.8 s and 40.9 s.
+- Chrome is at `/opt/google/chrome/chrome`; set `VIDEO_EDITOR_BROWSER=/opt/google/chrome/chrome` if auto-discovery fails. Node modules are under `/opt/aki-node/node_modules`; reuse cached component MOVs and render changed events only. `/usr/bin/time` is absent; use Python `time.monotonic()` or shell timestamps for runtime measurements.
+- The connected Drive tool accepted text operations but had no binary MP4 upload operation in this session. Keep delivery separate from editing and only claim an upload after a supported binary upload succeeds.
+
 ## Honest failure behavior
 
 - FFmpeg's exit code and the last lines of its stderr are printed verbatim. The scripts never report a success they did not verify.
-- A failed encode can still leave a partial file. Check the report's `exists`, `duration_seconds` and the exit code together before delivering.
+- A failed encode writes only a temporary file, which is removed on a handled failure. A process killed externally can leave a uniquely named `.part-<pid>-<random>.<ext>`; it is not the requested output and may be deleted after confirming no matching process still uses it. The final path is published only after a zero exit code and nonempty temporary.
+- Verify the final path with `ffprobe`, compare expected and actual duration, and run a full decode such as `ffmpeg -v error -i OUTPUT -f null -` before delivery. A file's presence and nonzero size alone do not prove a complete MP4.
 - Missing `ffmpeg`/`ffprobe` produce an install hint, not a stack trace.
 - `concat --copy` and `audio --operation replace` copy streams; if the output looks broken, re-run without `--copy` or re-encode the source.
 - `silence` reports both the measured duration and the expected one, so a rebuild that dropped or duplicated a segment is visible instead of silent.

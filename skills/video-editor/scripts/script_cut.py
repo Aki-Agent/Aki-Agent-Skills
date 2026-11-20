@@ -185,6 +185,10 @@ def apply_cuts(args: argparse.Namespace) -> dict:
         crf=args.crf,
         preset=args.preset,
         audio_bitrate=args.audio_bitrate,
+        chunked=args.chunked,
+        chunk_seconds=args.chunk_seconds,
+        chunk_timeout=args.chunk_timeout,
+        started=started,
     )
     plan.update(report)
     plan["elapsed_seconds"] = round(time.time() - started, 2)
@@ -252,6 +256,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--crf", type=int, default=20)
     parser.add_argument("--preset", default="veryfast")
     parser.add_argument("--audio-bitrate", default="128k")
+    parser.add_argument("--chunked", action="store_true",
+                        help="Encode short MP4 chunks then concat by stream copy")
+    parser.add_argument("--chunk-seconds", type=float, default=8.0,
+                        help="Maximum source span per chunk when --chunked (default 8s)")
+    parser.add_argument("--chunk-timeout", type=float, default=30.0,
+                        help="Seconds allowed for each FFmpeg chunk (default 30; lower chunk size if exceeded)")
     parser.add_argument("--json")
     args = parser.parse_args(argv)
 

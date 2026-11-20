@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import time
+import uuid
 from pathlib import Path
 
 INSTALL_HINT = (
@@ -54,16 +55,54 @@ def run(cmd: list[str], timeout: float | None = None) -> subprocess.CompletedPro
 
 
 def run_ffmpeg(args: list[str], timeout: float | None = None) -> subprocess.CompletedProcess:
-    """Run ffmpeg with `-y`; raise ToolError carrying verbatim stderr on failure."""
-    cmd = [tool_path("ffmpeg"), "-hide_banner", "-nostdin", "-y", *args]
-    proc = run(cmd, timeout=timeout)
-    if proc.returncode != 0:
+    """Run FFmpeg and atomically publish a completed file output.
+
+    FFmpeg writes to a same-directory temporary whose suffix still identifies
+    the container (for example `edit.part-1234-deadbeef.mp4`). A failed or timed-out
+    render never publishes a partial at the requested delivery path. A process
+    interrupted by the outer host may leave its uniquely named temporary behind.
+    """
+    final: Path | None = None
+    temporary: Path | None = None
+    command_args = list(args)
+    if command_args:
+        raw_output = str(command_args[-1])
+        candidate = Path(raw_output)
+        if raw_output not in {"-", "pipe:1"} and candidate.suffix:
+            final = candidate
+            final.parent.mkdir(parents=True, exist_ok=True)
+            temporary = candidate.with_name(
+                f"{candidate.stem}.part-{os.getpid()}-{uuid.uuid4().hex[:8]}{candidate.suffix}"
+            )
+            # A same-directory temporary also makes os.replace atomic on one filesystem.
+            # The unique suffix prevents a rerun from deleting a killed concurrent render.
+            command_args[-1] = str(temporary)
+
+    cmd = [tool_path("ffmpeg"), "-hide_banner", "-nostdin", "-nostats", "-loglevel", "error", "-y", *command_args]
+    try:
+        proc = run(cmd, timeout=timeout)
+        if proc.returncode != 0:
+            raise ToolError(
+                f"ffmpeg exited with code {proc.returncode}\n"
+                f"command: {' '.join(cmd)}\n"
+                f"stderr (last lines):\n{tail(proc.stderr)}"
+            )
+        if temporary is not None and final is not None:
+            if not temporary.is_file() or temporary.stat().st_size == 0:
+                raise ToolError(
+                    f"ffmpeg exited successfully but produced no file at {temporary}"
+                )
+            os.replace(temporary, final)
+        return proc
+    except subprocess.TimeoutExpired as exc:
+        detail = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
         raise ToolError(
-            f"ffmpeg exited with code {proc.returncode}\n"
-            f"command: {' '.join(cmd)}\n"
-            f"stderr (last lines):\n{tail(proc.stderr)}"
-        )
-    return proc
+            f"ffmpeg timed out after {timeout}s\n"
+            f"stderr (last lines):\n{tail(detail)}"
+        ) from exc
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def probe(path: str | Path) -> dict:

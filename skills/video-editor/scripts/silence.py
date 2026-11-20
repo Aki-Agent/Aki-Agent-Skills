@@ -2,8 +2,8 @@
 """Remove silence from a video: detect it, show the plan, then rebuild the cut.
 
 Usage:
-    python3 scripts/silence.py INPUT [--noise -30dB] [--min-silence 0.6]
-                                   [--pad 0.15] [--plan-only] [--output PATH]
+    python3 scripts/silence.py INPUT [--noise -30dB] [--min-silence 0.8]
+                                   [--pad 0.08] [--plan-only] [--chunked] [--output PATH]
 
 Two stages, deliberately separate:
 
@@ -47,6 +47,11 @@ SILENCE_START = re.compile(r"silence_start:\s*(-?[\d.]+)")
 SILENCE_END = re.compile(r"silence_end:\s*(-?[\d.]+)")
 # A keep-range shorter than this is a click, not speech; drop it.
 MIN_KEEP_SECONDS = 0.05
+# Tight, but leave enough lead/tail for consonants. Raise these values for a calmer edit.
+DEFAULT_MIN_SILENCE_SECONDS = 0.8
+DEFAULT_SPEECH_PAD_SECONDS = 0.08
+DEFAULT_CHUNK_SECONDS = 8.0
+DEFAULT_CHUNK_TIMEOUT_SECONDS = 30.0
 # Guards against a filter graph that would never finish building.
 MAX_SEGMENTS = 400
 
@@ -210,6 +215,9 @@ def remove_silence(args: argparse.Namespace) -> dict:
             "noise": args.noise,
             "min_silence_seconds": args.min_silence,
             "pad_seconds": args.pad,
+            "chunked": args.chunked,
+            "chunk_seconds": args.chunk_seconds if args.chunked else None,
+            "chunk_timeout_seconds": args.chunk_timeout if args.chunked else None,
         },
         "silences": silences,
         "silence_count": len(silences),
@@ -220,6 +228,10 @@ def remove_silence(args: argparse.Namespace) -> dict:
         "removed_share": round(removed / (end - start), 3) if end > start else 0.0,
     }
 
+    if args.chunked and args.chunk_seconds <= 0:
+        raise ToolError(f"--chunk-seconds must be greater than zero (got {args.chunk_seconds}).")
+    if args.chunked and args.chunk_timeout <= 0:
+        raise ToolError(f"--chunk-timeout must be greater than zero (got {args.chunk_timeout}).")
     if not ranges:
         raise ToolError(
             "Every sample was detected as silence, so the output would be empty. "
@@ -240,33 +252,65 @@ def remove_silence(args: argparse.Namespace) -> dict:
         ensure_output_dir(args.output_dir or Path.cwd() / "video-output")
         / f"{source.stem.replace(' ', '_')}_nosilence.mp4"
     )
+    if out.resolve() == source.resolve():
+        raise ToolError("Output path must differ from the input video; the source is never overwritten.")
     ensure_output_dir(out.parent)
 
     script = out.with_suffix(".filtergraph.txt")
-    script.write_text(build_graph(ranges, has_audio, start), encoding="utf-8")
-    cmd = []
-    if start:
-        cmd += ["-ss", f"{start:.3f}"]
-    cmd += [
-        "-i", str(source),
-        "-filter_complex_script", str(script),
-        "-map", "[vout]",
-    ]
-    if has_audio:
-        cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", args.audio_bitrate]
-    cmd += [
-        "-c:v", "libx264", "-preset", args.preset, "-crf", str(args.crf),
-        "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out),
-    ]
+    cmd: list[str] = []
+    if not args.chunked:
+        script.write_text(build_graph(ranges, has_audio, start), encoding="utf-8")
+        if start:
+            cmd += ["-ss", f"{start:.3f}"]
+        cmd += [
+            "-i", str(source),
+            "-filter_complex_script", str(script),
+            "-map", "[vout]",
+        ]
+        if has_audio:
+            cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", args.audio_bitrate]
+        cmd += [
+            "-c:v", "libx264", "-preset", args.preset, "-crf", str(args.crf),
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out),
+        ]
 
-    from ffmpeg_lib import run_ffmpeg
+    if args.chunked:
+        from cuts import rebuild
 
-    try:
-        run_ffmpeg(cmd)
-    finally:
-        script.unlink(missing_ok=True)
+        report = rebuild(
+            source=source,
+            keep_ranges=ranges,
+            output=out,
+            has_audio=has_audio,
+            crf=args.crf,
+            preset=args.preset,
+            audio_bitrate=args.audio_bitrate,
+            chunked=True,
+            chunk_seconds=args.chunk_seconds,
+            chunk_timeout=args.chunk_timeout,
+            started=started,
+        )
+    else:
+        from ffmpeg_lib import run_ffmpeg
 
-    report = output_report(out, started, {
+        try:
+            run_ffmpeg(cmd)
+        finally:
+            script.unlink(missing_ok=True)
+        report = output_report(out, started, {
+            "expected_seconds": round(kept, 3),
+            "chunked": False,
+        })
+        if report.get("probe_error"):
+            raise ToolError(f"Completed output could not be probed: {report['probe_error']}")
+        actual = report.get("duration_seconds")
+        if actual is not None and abs(actual - kept) > 0.25:
+            raise ToolError(
+                f"Output duration {actual:.3f}s differs from expected {kept:.3f}s "
+                f"by more than 0.25s; check the silence ranges and A/V timestamps."
+            )
+
+    report.update({
         "operation": "silence-remove",
         "input": str(source),
         "settings": plan["settings"],
@@ -287,6 +331,8 @@ def render_plan(plan: dict, limit: int = 40) -> str:
         f"Settings:    noise {plan['settings']['noise']}, "
         f"min silence {plan['settings']['min_silence_seconds']}s, "
         f"pad {plan['settings']['pad_seconds']}s",
+        f"chunked {plan['settings']['chunked']}"
+        + (f" ({plan['settings']['chunk_seconds']}s chunks)" if plan['settings']['chunked'] else ""),
         f"Detected:    {plan['silence_count']} silent runs -> keep {plan['keep_count']} ranges",
         f"Result:      {format_time(plan['kept_seconds'])} kept, "
         f"{format_time(plan['removed_seconds'])} removed ({plan['removed_share']:.0%})",
@@ -317,6 +363,8 @@ def render_result(report: dict) -> str:
         f"(expected {report['expected_seconds']}s)",
         f"  removed:  {format_time(report['removed_seconds'])} across "
         f"{report['silence_count']} silent runs",
+        f"  chunked:  {report.get('chunked', False)}"
+        + (f" ({report.get('chunk_count')} chunks)" if report.get('chunked') else ""),
         f"  elapsed:  {report['elapsed_seconds']}s",
     ]
     if report.get("probe_error"):
@@ -351,12 +399,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("input", help="Video file to process")
     parser.add_argument("--noise", default="-30dB", help="Silence threshold (default -30dB)")
     parser.add_argument(
-        "--min-silence", type=float, default=0.6,
-        help="Only cut silences at least this long (default 0.6s)",
+        "--min-silence", type=float, default=DEFAULT_MIN_SILENCE_SECONDS,
+        help=f"Only cut silences at least this long (default {DEFAULT_MIN_SILENCE_SECONDS:g}s; tighter edit)",
     )
     parser.add_argument(
-        "--pad", type=float, default=0.15,
-        help="Seconds of silence kept on each side of speech (default 0.15)",
+        "--pad", type=float, default=DEFAULT_SPEECH_PAD_SECONDS,
+        help=f"Seconds retained around speech on each side (default {DEFAULT_SPEECH_PAD_SECONDS:g}s)",
     )
     parser.add_argument("--start", type=float, help="Only process from this second")
     parser.add_argument("--end", type=float, help="Only process up to this second")
@@ -367,6 +415,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--crf", type=int, default=20)
     parser.add_argument("--preset", default="veryfast")
     parser.add_argument("--audio-bitrate", default="128k")
+    parser.add_argument("--chunked", action="store_true",
+                        help="Encode short MP4 chunks then concat by stream copy (bounded FFmpeg jobs)")
+    parser.add_argument("--chunk-seconds", type=float, default=DEFAULT_CHUNK_SECONDS,
+                        help=f"Maximum source span per chunk when --chunked (default {DEFAULT_CHUNK_SECONDS:g}s)")
+    parser.add_argument("--chunk-timeout", type=float, default=DEFAULT_CHUNK_TIMEOUT_SECONDS,
+                        help=f"Seconds allowed for each FFmpeg chunk (default {DEFAULT_CHUNK_TIMEOUT_SECONDS:g}; lower chunk size if exceeded)")
     parser.add_argument("--output")
     parser.add_argument("--output-dir")
     parser.add_argument("--json")

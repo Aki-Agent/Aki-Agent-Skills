@@ -1,22 +1,9 @@
 #!/usr/bin/env python3
-"""Transcribe a video with the existing video_transcription skill and turn the
-result into a timed script ready for review.
+"""Transcribe with the sibling transcription skill or local faster-whisper fallback.
 
-Usage:
-    python3 scripts/transcribe.py INPUT [--output-dir DIR] [--language es]
-                                        [--model small] [--formats json,srt,txt]
-
-This script deliberately does **not** reimplement speech recognition. The
-`video_transcription` skill is the single source of truth for transcription, so
-this module only locates it, runs it, and reshapes its JSON into the two things
-the rest of the pipeline needs:
-
-1. `*.json`  - the raw transcript, untouched, with segment and word timestamps.
-2. `*.script.md` - the same content as a readable, timecoded script. That is the
-   artifact a human or a model reviews to judge whether the script makes sense.
-
-Keeping the script separate from the transcript matters: the transcript is
-evidence, the script is the thing being edited.
+The sibling video_transcription skill remains preferred. If it is absent, the
+built-in adapter uses faster-whisper in the current Python environment when
+available, then writes the same word-timed JSON and review script.
 """
 
 from __future__ import annotations
@@ -24,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -40,6 +28,17 @@ from ffmpeg_lib import (  # noqa: E402
 
 SKILL_NAME = "video_transcription"
 DEFAULT_FORMATS = "json,srt,txt"
+
+
+def default_cache_dir() -> Path:
+    """Return the configured faster-whisper download root."""
+    override = os.environ.get("WHISPER_CACHE_DIR")
+    if override:
+        return Path(override).expanduser()
+    workspace = Path("/workspace")
+    if workspace.is_dir():
+        return workspace / ".cache" / "whisper"
+    return Path.home() / ".cache" / "whisper"
 
 
 def _candidate_roots() -> list[Path]:
@@ -62,6 +61,7 @@ def _candidate_roots() -> list[Path]:
         roots.append(parent / "skill" / SKILL_NAME)
         roots.append(parent / "skills" / SKILL_NAME)
     return roots
+
 
 def locate_skill() -> Path:
     """Return the directory of the transcription skill, or explain what is missing."""
@@ -105,15 +105,17 @@ def locate_python(skill: Path) -> str:
 
 
 def _has_faster_whisper(python: str) -> bool:
-    import subprocess
-
-    proc = subprocess.run(
-        [python, "-c", "import faster_whisper"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    try:
+        proc = subprocess.run(
+            [python, "-c", "import faster_whisper"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        return False
     return proc.returncode == 0
 
 
@@ -129,8 +131,6 @@ def run_transcription(
     extra: list[str],
 ) -> Path:
     """Run the transcription skill and return the JSON it wrote."""
-    import subprocess
-
     command = [
         python,
         str(skill / "transcribe_video.py"),
@@ -143,9 +143,13 @@ def run_transcription(
         "--force",
         *extra,
     ]
-    proc = subprocess.run(
-        command, capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
+    try:
+        proc = subprocess.run(
+            command, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=3600,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ToolError(f"transcription exceeded the 3600s safety timeout for {source}.") from exc
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()
         raise ToolError(
@@ -206,15 +210,75 @@ def render_script(transcript: dict, source_name: str) -> str:
     return "\n".join(lines)
 
 
+def _cached_model_path(cache_dir: Path, model: str) -> Path | None:
+    """Return the newest cached faster-whisper snapshot for a short model name."""
+    key = f"models--Systran--faster-whisper-{model}"
+    root = cache_dir / key / "snapshots"
+    if not root.is_dir():
+        return None
+    candidates = [path for path in root.iterdir() if (path / "model.bin").is_file()]
+    return max(candidates, key=lambda path: path.stat().st_mtime) if candidates else None
+
+
+def _local_fallback(args: argparse.Namespace, source: Path, output_dir: Path,
+                    base_name: str) -> dict:
+    """Call the built-in faster-whisper adapter in the current Python process."""
+    from local_transcribe import transcribe as transcribe_local
+
+    cache = Path(args.cache_dir).expanduser() if args.cache_dir else None
+    local_files_only = args.local_files_only
+    model = args.model
+    if not model:
+        model = "base" if cache and _cached_model_path(cache, "base") else "small"
+    if Path(model).exists():
+        local_files_only = True
+    elif cache:
+        cached = _cached_model_path(cache, model)
+        if cached:
+            model = str(cached)
+            local_files_only = True
+        elif local_files_only:
+            raise ToolError(
+                f"Whisper model {model!r} is not present in cache {cache}. "
+                "Populate the cache explicitly or pass --download-model."
+            )
+    local_args = argparse.Namespace(
+        input=str(source), output_dir=str(output_dir), base_name=base_name,
+        language=args.language, model=model, cache_dir=str(cache) if cache else None,
+        local_files_only=local_files_only, threads=args.threads, beam_size=args.beam_size,
+    )
+    report = transcribe_local(local_args)
+    report["transcription_backend"] = "local-faster-whisper-fallback"
+    report["elapsed_seconds"] = round(report.get("elapsed_seconds", 0), 2)
+    return report
+
+
 def transcribe(args: argparse.Namespace) -> dict:
     started = time.time()
     source = require_input(args.input)
-    skill = locate_skill()
-    python = locate_python(skill)
-
     output_dir = ensure_output_dir(Path(args.output_dir))
     base_name = args.base_name or source.stem.replace(" ", "_")
 
+    backend_error: ToolError | None = None
+    try:
+        skill = locate_skill()
+        python = locate_python(skill)
+    except ToolError as exc:
+        backend_error = exc
+        skill = None
+        python = None
+
+    if backend_error is not None:
+        if not args.local_fallback:
+            raise ToolError(
+                f"{backend_error}\nSet VIDEO_TRANSCRIPTION_PYTHON or install the sibling skill. "
+                "The local fallback is enabled by default; use --no-local-fallback to disable it."
+            ) from backend_error
+        report = _local_fallback(args, source, output_dir, base_name)
+        report["elapsed_seconds"] = round(time.time() - started, 2)
+        return report
+
+    assert skill is not None and python is not None
     transcript_path = run_transcription(
         skill=skill,
         python=python,
@@ -222,11 +286,10 @@ def transcribe(args: argparse.Namespace) -> dict:
         output_dir=output_dir,
         base_name=base_name,
         language=args.language,
-        model=args.model,
+        model=args.model or "small",
         formats=args.formats,
         extra=args.transcribe_arg or [],
     )
-
     transcript = load_transcript(transcript_path)
     script_text = render_script(transcript, source.name)
     script_path = output_dir / f"{base_name}.script.md"
@@ -241,6 +304,7 @@ def transcribe(args: argparse.Namespace) -> dict:
         "operation": "transcribe",
         "input": str(source),
         "skill_dir": str(skill),
+        "transcription_backend": "video_transcription-skill",
         "python": python,
         "transcript_json": str(transcript_path),
         "script_markdown": str(script_path),
@@ -281,7 +345,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", default="video-output")
     parser.add_argument("--base-name", help="Base name for output files")
     parser.add_argument("--language", default="es", help="Language code or auto")
-    parser.add_argument("--model", default="small", help="Whisper model")
+    parser.add_argument("--model", help="Whisper model (sibling default: small; local fallback prefers cached base)")
+    parser.add_argument("--no-local-fallback", dest="local_fallback", action="store_false",
+                        help="Fail if the sibling skill/interpreter is unavailable")
+    parser.set_defaults(local_fallback=True)
+    parser.add_argument("--local-fallback", dest="local_fallback", action="store_true",
+                        help=argparse.SUPPRESS)
+    parser.add_argument("--cache-dir", default=str(default_cache_dir()),
+                        help="Local model cache directory (default: %(default)s)")
+    parser.add_argument("--local-files-only", dest="local_files_only", action="store_true",
+                        help="Do not download a model in the local fallback (default)")
+    parser.set_defaults(local_files_only=True)
+    parser.add_argument("--download-model", dest="local_files_only", action="store_false",
+                        help="Allow the local fallback to download the requested model")
+    parser.add_argument("--threads", type=int, default=2,
+                        help="CPU threads for local faster-whisper (default 2)")
+    parser.add_argument("--beam-size", type=int, default=5,
+                        help="Beam size for local faster-whisper (default 5)")
     parser.add_argument(
         "--formats", default=DEFAULT_FORMATS,
         help=f"Formats passed to the transcription skill (default {DEFAULT_FORMATS})",

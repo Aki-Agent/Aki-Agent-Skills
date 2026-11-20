@@ -46,6 +46,8 @@ from ffmpeg_lib import (  # noqa: E402
     duration_of,
     ensure_output_dir,
     format_time,
+    frame_rate_of,
+    output_report,
     probe,
     require_input,
     run_ffmpeg,
@@ -262,6 +264,44 @@ def _apply_corrections(words: list[dict], corrections: dict) -> tuple[list[dict]
     return result, applied
 
 
+def cap_cues_to_duration(cues: list[dict], media_duration: float) -> int:
+    """Keep rendered subtitle cues inside the media's representable timeline.
+
+    ASS timestamps have centisecond precision. Reading-speed holds can borrow a
+    pause, so the final cue may otherwise run past the video. Cap the end at the
+    last centisecond within the media, and reject timestamps that cannot produce
+    a positive, representable cue rather than emitting an invalid subtitle.
+    """
+    try:
+        total = float(media_duration)
+    except (TypeError, ValueError) as exc:
+        raise ToolError(f"Invalid media duration for subtitle validation: {media_duration!r}") from exc
+    if total <= 0:
+        return 0
+
+    last_centisecond = int(total * 100) / 100
+    capped = 0
+    for cue in cues:
+        start = float(cue["start"])
+        end = float(cue["end"])
+        if start >= total:
+            raise ToolError(
+                f"Subtitle cue starts at {start:.3f}s, outside the "
+                f"{total:.3f}s video. Check transcript timestamps."
+            )
+        if end > last_centisecond:
+            end = last_centisecond
+            capped += 1
+        if int(round(end * 100)) <= int(round(start * 100)):
+            raise ToolError(
+                f"Subtitle cue at {start:.3f}s has no positive duration inside the "
+                f"{total:.3f}s video at ASS centisecond precision. Check transcript timestamps."
+            )
+        cue["end"] = end
+        cue["duration"] = round(end - start, 3)
+    return capped
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     started = time.time()
     transcript_path = require_input(args.transcript)
@@ -289,9 +329,11 @@ def cmd_build(args: argparse.Namespace) -> int:
     placement = None
     composition = None
     width = height = None
+    total = transcript.get("duration")
     if args.video:
         video = require_input(args.video)
         info = probe(video)
+        total = duration_of(info)
         stream = stream_of(info, "video")
         if not stream:
             raise ToolError(f"No video stream in {video}")
@@ -349,6 +391,13 @@ def cmd_build(args: argparse.Namespace) -> int:
     if not cues:
         raise ToolError("No cues were produced; the transcript has no words to time.")
 
+    # Reading-speed holds may borrow a following pause; never let one extend
+    # beyond the actual video or serialize as a zero/negative-length ASS cue.
+    duration_capped_cues = 0
+    if total is not None:
+        duration_capped_cues = cap_cues_to_duration(cues, total)
+        last_renderable_time = int(float(total) * 100) / 100 if float(total) > 0 else 0.0
+
     validation = validate_cues(cues, max_chars, args.max_cps)
 
     ass_path = output_dir / f"{base}.subs.ass"
@@ -366,6 +415,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         "placement": placement,
         "composition": composition,
         "style": style,
+        "duration_capped_cues": duration_capped_cues,
         "validation": validation,
         "files": {"ass": str(ass_path), "srt": str(srt_path)},
         "elapsed_seconds": round(time.time() - started, 2),
@@ -384,6 +434,8 @@ def cmd_build(args: argparse.Namespace) -> int:
     print(f"  placement: {placement['anchor']} (layout {placement['layout']}, "
           f"margin {placement['margin_v']}px) - {placement['reason']}")
     print(f"  style:    {style['font']} {style['size']}px, alignment {style['alignment']}")
+    if duration_capped_cues:
+        print(f"  duration cap: {duration_capped_cues} cue(s) kept within {last_renderable_time:.2f}s")
     if validation["count"]:
         print(f"  WARNING: {validation['count']} reading problems (see the JSON)")
         for problem in validation["problems"][:8]:
@@ -408,7 +460,8 @@ def cmd_burn(args: argparse.Namespace) -> int:
     source = require_input(args.input)
     subtitle = require_input(args.ass)
     info = probe(source)
-    if not stream_of(info, "video"):
+    video_stream = stream_of(info, "video")
+    if not video_stream:
         raise ToolError(f"No video stream in {source}")
 
     suffix = ".mp4"
@@ -435,17 +488,55 @@ def cmd_burn(args: argparse.Namespace) -> int:
         cmd += ["-an"]
     cmd += ["-movflags", "+faststart", str(out)]
 
-    run_ffmpeg(cmd)
+    chunk_report = None
+    if args.chunked:
+        if args.max_width:
+            raise ToolError("--chunked burn does not support --max-width; transcode the video first.")
+        from enhance import _encode_enhanced_chunks
+
+        chunk_report = _encode_enhanced_chunks(
+            video=source,
+            events=[],
+            output=out,
+            width=int(video_stream["width"]),
+            height=int(video_stream["height"]),
+            fps=frame_rate_of(video_stream) or 30.0,
+            duration=duration_of(info),
+            crf=args.crf,
+            preset=args.preset,
+            ass=subtitle,
+            audio_info=audio,
+            renders_dir=out.parent,
+            chunk_seconds=args.chunk_seconds,
+            chunk_timeout=args.chunk_timeout,
+            started=started,
+        )
+    else:
+        run_ffmpeg(cmd)
     if not out.is_file():
         raise ToolError(f"ffmpeg reported success but {out} does not exist.")
+    rendered_info = probe(out)
+    if not stream_of(rendered_info, "video"):
+        raise ToolError(f"Subtitle render has no video stream: {out}")
+    source_duration = duration_of(info)
+    rendered_duration = duration_of(rendered_info)
+    if source_duration and abs(rendered_duration - source_duration) > 0.25:
+        raise ToolError(
+            f"Subtitle render duration {rendered_duration:.3f}s differs from source "
+            f"duration {source_duration:.3f}s by more than 0.25s."
+        )
 
-    report = {
+    report = chunk_report or output_report(out, started)
+    report.update({
         "output": str(out),
         "source": str(source),
         "subtitles": str(subtitle),
         "size_bytes": out.stat().st_size,
         "elapsed_seconds": round(time.time() - started, 2),
-    }
+        "chunked": bool(args.chunked),
+        "chunk_seconds": args.chunk_seconds if args.chunked else None,
+        "chunk_timeout_seconds": args.chunk_timeout if args.chunked else None,
+    })
     if args.json:
         write_json(report, args.json)
     print("Subtitles burned")
@@ -495,6 +586,12 @@ def build_parser() -> argparse.ArgumentParser:
     burn.add_argument("--crf", type=int, default=20)
     burn.add_argument("--preset", default="medium")
     burn.add_argument("--max-width", type=int, help="Downscale while burning")
+    burn.add_argument("--chunked", action="store_true",
+                      help="Burn subtitles in short chunks for limited execution windows")
+    burn.add_argument("--chunk-seconds", type=float, default=8.0,
+                      help="Maximum output seconds per chunk (default 8s)")
+    burn.add_argument("--chunk-timeout", type=float, default=30.0,
+                      help="Maximum FFmpeg time per chunk (default 30s)")
     burn.add_argument("--output")
     burn.add_argument("--output-dir", default="video-output")
     burn.add_argument("--json")
