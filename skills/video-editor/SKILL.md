@@ -1,6 +1,6 @@
 ---
 name: video-editor
-description: Edits video files locally with FFmpeg — inspect orientation, length and content type, remove silence, clean the spoken script, review and correct a transcript, burn subtitles in a measured position, trim, concatenate, extract or replace audio, transcode for delivery, and export still frames — without uploading media anywhere. Use when a user asks to cut, join, compress, resize, mute, re-voice, de-silence, caption or inspect a video, or needs frames or a contact sheet from one.
+description: Edits video files locally with FFmpeg — inspect orientation, length and content type, remove silence, clean the spoken script, review and correct a transcript, burn subtitles in a measured position, add HTML-rendered callouts, badges, screenshots and b-roll cutaways, punch-in zooms and split person/content layouts, trim, concatenate, extract or replace audio, transcode for delivery, and export still frames — without uploading media anywhere. Use when a user asks to cut, join, compress, resize, mute, re-voice, de-silence, caption, enhance or inspect a video, wants key points, images or graphics shown over a talking head, or needs frames or a contact sheet from one.
 ---
 
 # Video Editor
@@ -15,6 +15,7 @@ Local, deterministic video editing with FFmpeg. Nothing is uploaded: the scripts
 |---|---|
 | All scripts | `ffmpeg` and `ffprobe` on `PATH`, Python 3.9+ |
 | Encoding H.264 / H.265 | An FFmpeg build with `libx264` / `libx265` (the default Gyan, Homebrew and distro builds have them) |
+| `enhance` (components) | Node 22+ (native `WebSocket` and `fetch`) and Edge or Chrome discoverable by the renderer |
 
 No Python packages are installed: the scripts use the standard library only. `ffmpeg_lib.tool_path` honors `FFMPEG_PATH` and `FFPROBE_PATH` when the binaries are not on `PATH`.
 
@@ -49,6 +50,7 @@ One CLI, one subcommand per operation. Every subcommand prints a readable report
 | `script_read` | Turns a transcript into a word-indexed script plus an empty cut list to fill by hand. |
 | `script_cut` | Applies a hand-written cut list (word indices or seconds) and rebuilds the video. |
 | `subtitles` | Subtitle pass: `review` flags words to correct, `build` writes timed SRT + ASS with measured placement, `burn` renders them. |
+| `enhance` | Enhancement pass: renders HTML components (callouts, badges, screenshots, b-roll) with alpha, adds punch-in zooms and split layouts, checks them against the face and the subtitle band, and composes everything plus the subtitles in one encode. |
 | `trim` | Cuts a time range out of one file. `--copy` for speed, default re-encodes for frame-accurate cuts. |
 | `concat` | Joins several files in order. `--copy` requires identical codec, size and frame rate. |
 | `audio` | `--operation extract` writes the audio track; `--operation replace --replace FILE` swaps it and copies the video stream. |
@@ -132,15 +134,15 @@ Reading alone misses two defects that show up in every real recording, and both 
 | `repeat` | The same content n-gram coming back | Function words ignored, so "que hay una" does not count as content. |
 | `stutter` / `filler` | Repeated words, hesitation sounds | Adjacent identical tokens, known noise words. |
 
-The first one is the case that reading cannot catch. In the 1119 test recording the audio says *"saben que hay **un altísimo** que hay una altísima probabilidad"*; the transcript renders it as *"saben que hay una altísima probabilidad"* with `una` stretched to 1.86 s. The aborted start is invisible in the text and obvious in the timings.
+The first one is the case that reading cannot catch. In one test recording the transcript omitted an aborted start and stretched a single token to 1.86 s. The aborted start is invisible in the text and obvious in the timings.
 
-`truncated` covers the opposite failure. In the sample_3 test recording the audio says *"se arco..."* and then restarts as *"que largó XAI"*; the transcript keeps the stumble as the token `arco...`. That ellipsis is the recognizer admitting it could not finish the word, so the trace is in the text. Measured across five transcripts, tokens with `...` appeared **only** where the speaker actually stumbled, and never in a corrected script.
+`truncated` covers the opposite failure. In another test recording the transcript retained an unfinished word as a token ending in `...`. That ellipsis is the recognizer admitting it could not finish the word, so the trace is in the text. Measured across five transcripts, tokens with `...` appeared **only** where the speaker actually stumbled, and never in a corrected script.
 
 `--listen` turns a candidate into evidence: it cuts that window, transcribes it **in isolation**, and prints what was really said with real word boundaries. A short clip has no long-recording context to make the recognizer skip a false start, which is exactly why it recovers speech the full-file pass dropped. **When `heard` and the transcript disagree, trust `heard` and cut by seconds** — the word index of a swallowed stretch points at the wrong boundaries.
 
 Every candidate is a measurement, not a verdict. A trailing comma alone is *not* a signal: whisper splits on pauses, not sentences, so checking that flagged 26 of 28 candidates on a clean recording. Only the comma **plus** a restart marker is worth reporting. Numbers are excluded from `collapsed` on purpose: "64GB" and "3090" are read slowly and come back with low confidence without being swallowed speech. The duration floor is 1.6 s for the same reason: measured across the test recordings, real swallowed speech stretches a token to 1.86 s, while a name read slowly (`SpaceX,` at 1.34 s, confidence 0.47) stays under it.
 
-The restart marker list is deliberately narrow, and that matters. Bare connectives are not restarts: `entonces tendría sentido...` continues the same argument, and `quién llega primero` merely contains the word "primero". A loose list turns continuations into false positives — measured on the 1119 recording, adding `entonces` and `primero` produced two spurious candidates on a script that reads correctly. Only openers that genuinely abandon the thread ("primero que nada", "antes que nada", "lo importante") are listed.
+The restart marker list is deliberately narrow, and that matters. Bare connectives are not restarts: `entonces tendría sentido...` continues the same argument, and `quién llega primero` merely contains the word "primero". A loose list turns continuations into false positives — measured on the test recording, adding `entonces` and `primero` produced two spurious candidates on a script that reads correctly. Only openers that genuinely abandon the thread ("primero que nada", "antes que nada", "lo importante") are listed.
 
 The pass is self-checking: audit the recording before cutting and after. On both test videos the pre-cut audit reports 2 candidates and the post-cut audit reports 0, so a remaining candidate means a cut was missed.
 
@@ -197,7 +199,7 @@ python3 scripts/subtitles.py burn video-output/final.mp4 \
 | contains a digit | Numbers arrive split (`$60` `.000` `.000`) | Always worth a look |
 | capitalized mid-sentence | A brand name, not a sentence start | See below |
 
-Capitalization is only meaningful **inside** a sentence. Flagging every capitalized word marked `Porque`, `Ahora` and `Este` on a clean transcript — 68 of 408 words on the sample_3 recording, most of them noise. Checking that the previous token does not end in `.`/`?`/`!` and that the word is not at a segment start cut it to 51, and every remaining hit was a real proper noun or a brand.
+Capitalization is only meaningful **inside** a sentence. Flagging every capitalized word marked `Porque`, `Ahora` and `Este` on a clean transcript — 68 of 408 words on a test recording, most of them noise. Checking that the previous token does not end in `.`/`?`/`!` and that the word is not at a segment start cut it to 51, and every remaining hit was a real proper noun or a brand.
 
 Corrections are written in two forms, both keeping the original timings so text edits never move a cue:
 
@@ -284,6 +286,160 @@ python3 scripts/edit.py frame output_subs.mp4 --at 6 --output video-output/check
 Burn one short clip first, not the whole file. A 12 s clip takes about 20 s to burn and answers every question the numbers cannot: whether the text clears the microphone, whether the box is too heavy for the shot, whether a caption already baked into the footage sits under the subtitle. Burning the full file before checking costs minutes and still has to be redone.
 
 This check caught a real defect that no measurement flagged: on the 4K recording the subtitle landed on a Windows settings panel. The placement was correct — free space below the webcam inset — but the space was full of UI text, which is exactly the case the band edge density now detects.
+
+### Enhancement pass: information and images
+
+The third stage, after the cut (silence + script) and the subtitles. It adds what a viewer sees on top of the speaker, and every visual is an HTML/CSS/JS component rendered to a clip with alpha, so the same component works at any resolution and is reused across videos.
+
+| On screen | Plan `type` | Built with |
+|---|---|---|
+| Card that remarks a key point | `callout` | `components/callout.html` |
+| Icon, logo, banner or button over the footage, transparent background | `badge` | `components/badge.html` (`variant`: `pill`, `banner`, `button`; `src` for a logo PNG with alpha) |
+| Screenshot or image card that slides in | `screenshot` | `components/screenshot.html` |
+| Screen changes to an example image with a very slow zoom | `broll` | `components/broll.html` (linear Ken Burns, default 1.0 → 1.12) |
+| Zoom on the speaker at a key moment | `punch` | FFmpeg crop + scale, no component |
+| Person on one half, explainer on the other | `split` | FFmpeg crop + `components/split-panel.html` |
+
+```bash
+# 1. Write the plan against the FINAL transcript (word timestamps), then validate it
+python3 scripts/enhance.py video-output/final.enhance.json --video video-output/final.mp4 --plan-only
+
+# 2. Render, check, compose; the subtitles are burned in the same encode
+python3 scripts/enhance.py video-output/final.enhance.json --video video-output/final.mp4 \
+    --ass video-output/final.subs.ass --output video-output/final_enhanced.mp4 \
+    --json video-output/final_enhanced.report.json
+```
+
+Run it on the cut that the subtitles were built from, and pass that ASS with `--ass` instead of running `subtitles burn` first: the delivery file is then one lossy generation away from the cut, and the subtitles land on top of every overlay instead of under it.
+
+#### The plan
+
+```json
+{
+  "accent": "#ffb020",
+  "events": [
+    {"type": "callout", "start": 0.06, "end": 3.6,
+     "params": {"kicker": "The question", "title": "Will AI replace us?", "icon": "alert", "top": 0.015}},
+    {"type": "punch", "start": 4.04, "end": 5.8, "zoom": 1.2, "center": [0.49, 0.37]},
+    {"type": "split", "start": 15.72, "end": 26.1, "person": "bottom", "person_y": 0.17,
+     "panel": {"params": {"kicker": "What is alignment?", "title": "AI that follows our values",
+       "items": [{"icon": "flag", "text": "Its goals", "at": 2.72}]}}},
+    {"type": "broll", "start": 52.9, "end": 58.6,
+     "params": {"src": "assets/race.png", "caption": "Nobody wants to stop", "zoom_to": 1.12}}
+  ]
+}
+```
+
+`components/examples/enhance.example.json` demonstrates the original event types; its two images come from `stills.example.json` (below). The [component catalog](components/README.md) provides examples and settings for all components. Relative image paths resolve against the plan's folder.
+
+| Field | Meaning |
+|---|---|
+| `start` / `end` | Seconds on the final cut. Take them from the word timestamps in the final transcript, not from segment boundaries: a card that appears on the word reads as intentional, half a second early reads as a mistake. |
+| `params` | Passed to the component. Positions and sizes are shares of the frame (`top`, `x`, `y`, `w` from 0 to 1), so a plan is not tied to a resolution. |
+| `component` | Any HTML file following the contract below; replaces the built-in one for that event. |
+| `zoom`, `center` | Punch-in factor (1.0-2.0) and the point to zoom on, as shares of the frame. |
+| `person`, `person_y` / `person_x` | Split side (`top`/`bottom` on vertical, `left`/`right` on horizontal) and where the person crop starts. |
+| `items[].at` | Seconds after the panel opens when a list item appears: sync it to the word that names it. |
+
+`--plan-only` rejects with exit code 2 and one line per problem: a missing image or component, an event outside the video, `end` before `start`, a split side that does not exist for the orientation, an unknown type, and a punch or split overlapping another punch or split. Both rewrite the base picture, so two of them at the same moment are refused instead of composed in an undefined order. Overlays (cards, badges, b-roll) may sit on top of a split.
+
+#### Layouts
+
+- **Punch-in is a jump zoom.** A constant crop scaled back to the frame, cut in and out on the word. A smooth ramp would need a per-frame crop size, and FFmpeg's `crop` evaluates its size once per stream, so it is not implemented. Measured on the test recording at `zoom 1.2, center [0.49, 0.37]`: the top of the head moves from 240 px to about 320 px and the face fills more of the frame.
+- **Split crops the person, it does not shrink them.** On a vertical frame the person keeps full width and a half-height window starting at `person_y`; the panel takes the other half. `person_y` comes from where the head starts: on the test recording skin begins at row 240 px (0.19 of the height), so `0.17` keeps the head with some air above it. Measured on the result: the top half has no skin, the person starts at about 650 px.
+- **The panel is opaque from its first frame.** The person crop switches on a hard cut, so a panel that faded in would show the uncropped head behind it for the length of the fade. Only the panel content animates.
+- The horizontal split (person `left`/`right`, panel on the other side) is implemented with the same code path but has not been run on a real horizontal recording yet.
+
+#### Components and how to add one
+
+```
+components/
+  overlay.css           shared base: transparent page, .life enter/leave, keyframes
+  overlay.js            shared runtime: params from the URL hash, text slots, icons, positions
+  callout.html  badge.html  screenshot.html  broll.html  split-panel.html
+  scenes/race.html      illustration for a b-roll (render it as a still first)
+  scenes/trend.html     labeled trend chart for a screenshot card, tagged as an illustration
+  examples/enhance.example.json   a plan with every event type
+  examples/stills.example.json    renders the two images that plan uses into examples/assets/ (git-ignored)
+```
+
+The contract a new component follows, so `enhance` can render it:
+
+- The page **is** the frame: the renderer sets the viewport to the video size (the panel size for a split) and captures it with a transparent background. Whatever the component does not paint stays alpha 0.
+- Include `overlay.css` and `overlay.js`. Params arrive as JSON in the URL hash; `data-p="title"` fills a text slot and removes it when the param is missing, `data-icon` inlines one of the built-in SVG icons, `img[data-src]` loads an image.
+- Wrap the content in `.life`: it enters at 0 and leaves at the end of `--dur`, which the renderer sets to the event length.
+- Size with `vmin` and position with shares of the frame. Pixel sizes break the moment the same plan runs on a 4K file.
+- Animate with CSS animations, `setTimeout`, `requestAnimationFrame` or `performance.now`: the renderer replaces all of them with a virtual clock and steps it per frame, so a slow machine renders the same frames as a fast one. No Web Workers, no `<video>`.
+- A `console.error`, an exception or an image that does not load fails the render with the message. An empty card is never reported as success.
+
+Illustrations for `broll` and `screenshot` (`scenes/`) are rendered as stills with the same renderer, then passed as `src`:
+
+```bash
+# From the skill folder: render the example images, then validate the example plan against a cut
+node scripts/overlay_render.js --jobs components/examples/stills.example.json
+python3 scripts/enhance.py components/examples/enhance.example.json --video final.mp4 --plan-only
+```
+
+A job is `{"html", "params", "w", "h", "still": true, "at", "out"}` for a PNG, or `{"html", "params", "w", "h", "fps", "dur", "out"}` for a MOV clip; paths resolve against the working directory.
+
+An illustration must not pass as evidence: `scenes/trend.html` tags itself `ILLUSTRATION` and says "not real data" unless told otherwise. Quote the speaker in captions instead of inventing a headline the video never showed.
+
+#### Rendering
+
+`overlay_render.js` starts one headless Edge or Chrome for all jobs, renders each component frame by frame on the virtual clock, pipes PNG frames to FFmpeg and writes a MOV with the PNG codec (`rgba`). `enhance` caches every clip under `<output>_renders/` with a key made from the component, the params, the size, the duration and the modification time of the component, the shared runtime and every local image. A second run re-renders only what changed.
+
+Three defects found while rendering the test recording, all fixed and worth knowing because they look like success:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Render slowed from 4.5 s to 26.9 s per 105-frame clip, then one b-roll clip produced nothing for over 5 minutes | A fresh profile still opened extension welcome tabs, and headless Chromium throttles a tab it considers hidden | `--disable-extensions`, the throwaway profile is wiped on every launch (a reused one restored the old tabs), the render tab is brought to front with focus emulation, and every CDP call fails after 60 s with its method name instead of hanging |
+| A 0-byte MOV at the final path after the hung render was killed | FFmpeg had created the file before any frame arrived | Clips are written to `.part` and renamed only after FFmpeg exits 0, so the cache never reuses a broken clip |
+| A redrawn image kept its old render | The cache key used the image path, not its content | The image's modification time is part of the key |
+
+Throughput depends on how much of the frame is painted, because each frame is a PNG screenshot:
+
+| Clip | Frames | Time |
+|---|---|---|
+| Callout over transparent frame, 720x1280 | 106 | 4.5 s |
+| Badge, 720x1280 | 155 | 6.5 s |
+| Split panel, opaque, 720x640 | 311 | 28.5 s |
+| B-roll, opaque full frame, 720x1280 | 171 | 23.0 s |
+
+Opaque clips are also the large ones: the 10.4 s split panel is 73 MB as PNG-in-MOV. That is intermediate cache, not delivery, and it is deleted with the renders folder.
+
+#### Checks: the render can succeed and still cover the face
+
+After rendering, the middle frame of every overlay is compared with the footage in the same window, on a 9x16 cell grid (16x9 on horizontal):
+
+| Check | Measured as | Warns above |
+|---|---|---|
+| Head overlap | Painted cells over the upper half of the skin rows | 10% |
+| Subtitle band overlap | Painted cells over the two-line block computed from the ASS style (`Fontsize`, `Alignment`, `MarginV`) | 5% |
+| Person overlap | Painted cells over all skin, including neck and hands | reported only |
+
+The head is the upper half of the skin rows, not all of it, because skin includes the neck and the hands. A screenshot card over the chest and hands is fine, a card over the eyes is not, and one number for both warned about a card that covered only the chest. B-roll is skipped: covering the person is its purpose.
+
+The checks caught six real problems on the first test run before anyone watched the video:
+
+| Event | First run | Cause | After the fix |
+|---|---|---|---|
+| Callouts (5 of 6) | covered 12-26% of the person; the figure card reached the eyes | 6.6vmin titles, a 17vmin figure and a 6vmin shadow made the cards reach 320-400 px; the head starts at 240 px | Compact sizes: two title lines end at 214 px, a figure card at 237 px, shadow included. 0% head overlap on all six |
+| Screenshot | covered 39% of the subtitle band | At `w 0.66, top 0.565` the card painted down into the 1120-1200 px row; the subtitle block starts at 1123 px | `w 0.5, top 0.585`: the card spans 743-1107 px. 0% subtitles, 0% head, 23% person (chest and hands) |
+
+Shadows count as painted pixels, deliberately: a dark shadow over the forehead dims it as much as the card would.
+
+Limits of the check, stated as facts: it samples the footage before zooms, so an overlay during a punch-in is measured against the unzoomed face; and it samples one overlay frame (the middle), so a component that moves across the frame is measured at one position.
+
+#### What worked and what did not on the test recording
+
+| | Result |
+|---|---|
+| Worked | 17 events (6 callouts, 3 badges, 1 screenshot, 1 b-roll, 4 punch-ins, 2 splits) over a 177.2 s cut; output duration exactly 177.2 s; subtitles burned over the splits, the b-roll and next to the screenshot (white pixels present in the subtitle band at 22 s, 55 s, 92 s and 120 s, absent in the unburned cut) |
+| Worked | Split list items timed to the word that names them (`at` = word time − panel start) read as the speaker building the list |
+| Worked | Caching: the corrected run re-rendered 7 clips and reused 6; render 42.8 s, encode 21.4 s, total 69.8 s |
+| Did not | First-version cards sized for "readable", not for the free band: they covered the head. Size components against the measured free space, then let the check confirm |
+| Did not | An opaque full-frame b-roll is the slowest and heaviest clip to render; keep cutaways short (5-6 s) |
+| Open | Layout changes are hard cuts; there are no transitions, no smooth zoom ramps and no sound effects yet |
 
 ### Low-resolution previews
 
@@ -401,6 +557,14 @@ Subtitle timings, same machine and inputs:
 
 Measurement is capped at a 720 px long side, which is what keeps a 4K build at 5 s instead of a run that does not finish in two minutes. Burning is the expensive step: it re-encodes every frame it decorates.
 
+Enhancement timings, same machine, Edge headless, 177.2 s 720x1280 cut with 17 events:
+
+| Operation | Result | Time |
+|---|---|---|
+| `enhance --plan-only` | 17 events validated, timeline printed | 0.15 s |
+| `enhance`, first complete run | 8 clips rendered (5 more cached by an interrupted run), checks, one encode with subtitles | render 141.9 s, encode 21.2 s, total 174.8 s |
+| `enhance`, after editing 6 callouts and the screenshot | 7 clips re-rendered, 6 reused | render 42.8 s, encode 21.4 s, total 69.8 s |
+
 ## Honest failure behavior
 
 - FFmpeg's exit code and the last lines of its stderr are printed verbatim. The scripts never report a success they did not verify.
@@ -412,6 +576,8 @@ Measurement is capped at a 720 px long side, which is what keeps a 4K build at 5
 
 ## Not covered yet
 
-Kept out on purpose, to be added incrementally: crop/zoom, overlays and watermarks, transitions, speed ramps, vertical/reframe conversion, and music ducking. Say so plainly if a user asks for one of them instead of improvising a half-working command.
+Kept out on purpose, to be added incrementally: sound effects and music ducking, transitions between layouts, smooth zoom ramps, speed ramps, and vertical/reframe conversion. Say so plainly if a user asks for one of them instead of improvising a half-working command.
+
+Overlays, punch-in zooms and split layouts **are** covered by `enhance`; the horizontal split is implemented but not yet run on a real horizontal recording.
 
 Subtitles **are** covered, end to end: `subtitles review` flags the words, `subtitles build` writes timed SRT + ASS with measured placement, and `subtitles burn` renders them onto the frame. The output is a hard burn; a muxed soft subtitle track is not implemented.

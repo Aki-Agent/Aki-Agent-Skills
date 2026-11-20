@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- Screenshot or image card that slides in over the footage.
+     Params: src (required), caption, label (small tag over the image), w (0-1 share of width),
+     top (0-1 share of height), accent, dur -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="overlay.css">
+<style>
+  :root { --w: .82; --top: .05; --enter: enter-side; --leave: leave-only-fade; --in: .6s; }
+  .slot { position: absolute; left: 0; right: 0; top: calc(var(--top) * 100%); display: flex; justify-content: center; }
+  .card { width: calc(var(--w) * 100%); background: #fff; border-radius: 2.6vmin; padding: 1.2vmin;
+    box-shadow: 0 1.2vmin 3.6vmin rgba(0, 0, 0, .5); position: relative; }
+  .shot { display: block; width: 100%; height: auto; border-radius: 1.8vmin; }
+  .label { position: absolute; top: -2.6vmin; left: 3vmin; background: var(--accent); color: #111;
+    font-size: 3vmin; font-weight: 800; padding: .8vmin 2vmin; border-radius: 1.2vmin; text-transform: uppercase; letter-spacing: .2vmin; }
+  .caption { color: #111; font-size: 3.8vmin; font-weight: 700; padding: 1.6vmin 1.4vmin .6vmin; line-height: 1.25; }
+  /* Slow push-in while the card is on screen, so a still image does not read as frozen. */
+  .shot { animation: drift var(--dur) linear both; transform-origin: 50% 40%; }
+  .clip { overflow: hidden; border-radius: 1.8vmin; }
+  @keyframes drift { from { transform: scale(1); } to { transform: scale(1.06); } }
+</style></head>
+<body>
+  <div class="slot"><div class="card life">
+    <span class="label" data-p="label"></span>
+    <div class="clip"><img class="shot" data-src="src"></div>
+    <div class="caption" data-p="caption"></div>
+  </div></div>
+  <script src="overlay.js"></script>
+</body></html>

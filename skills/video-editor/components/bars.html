@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- Horizontal bar chart that grows in. Use only numbers the video states; label illustrations as such.
+     See components/README.md.
+     Params: title, kicker, note, items [{label, value, display, color}] (display = text shown instead of value),
+             max (default: largest value), suffix (appended to values, e.g. " GB"), top (default .015),
+             bg, theme, accent, ink, card, dur -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="overlay.css">
+<style>
+  :root { --top: .015; }
+  .slot { position: absolute; left: 6%; right: 6%; top: calc(var(--top) * 100%); }
+  .card { background: var(--card); border-radius: 3vmin; padding: 2.6vmin 3.6vmin 2.8vmin; box-shadow: 0 .8vmin 2.4vmin rgba(0, 0, 0, .35); }
+  body.solid .card { background: none; box-shadow: none; }
+  .kicker { color: var(--accent); font-size: 3.2vmin; font-weight: 800; letter-spacing: .3vmin; text-transform: uppercase; }
+  .title { font-size: 5vmin; font-weight: 900; line-height: 1.1; margin-top: .6vmin; }
+  .rows { margin-top: 2vmin; display: flex; flex-direction: column; gap: 1.6vmin; }
+  .row { display: grid; grid-template-columns: 26% 1fr; align-items: center; gap: 2vmin; }
+  .lab { font-size: 3.6vmin; font-weight: 700; text-align: right; line-height: 1.1; }
+  .track { position: relative; height: 5.4vmin; background: rgba(127, 127, 127, .2); border-radius: 1.2vmin; overflow: hidden; }
+  .fill { position: absolute; inset: 0 auto 0 0; background: var(--c, var(--accent)); border-radius: 1.2vmin; transform-origin: left;
+    animation: grow .9s cubic-bezier(.3, .8, .2, 1) both; }
+  .val { position: absolute; right: 1.4vmin; top: 50%; transform: translateY(-50%); font-size: 3.4vmin; font-weight: 900;
+    color: var(--ink); text-shadow: 0 .3vmin 1vmin rgba(0, 0, 0, .6); animation: enter-fade .3s both; }
+  .note { margin-top: 1.4vmin; font-size: 2.8vmin; color: var(--muted); }
+  @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+</style></head>
+<body>
+  <div class="slot"><div class="card life">
+    <div class="kicker" data-p="kicker"></div>
+    <div class="title" data-p="title"></div>
+    <div class="rows"></div>
+    <div class="note" data-p="note"></div>
+  </div></div>
+  <script src="overlay.js"></script>
+  <script>
+    const p = window.OVERLAY.params;
+    if (p.bg) document.body.classList.add('solid');
+    const items = p.items || [];
+    const max = +p.max || Math.max(1, ...items.map(i => +i.value || 0));
+    items.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = '<div class="lab"></div><div class="track"><div class="fill"></div><div class="val"></div></div>';
+      row.querySelector('.lab').textContent = item.label;
+      const fill = row.querySelector('.fill');
+      fill.style.width = Math.max(2, Math.min(100, (+item.value || 0) / max * 100)) + '%';
+      fill.style.animationDelay = (0.3 + i * 0.25) + 's';
+      if (item.color) fill.style.setProperty('--c', item.color);
+      const val = row.querySelector('.val');
+      val.textContent = item.display ?? ((item.value ?? '') + (p.suffix || ''));
+      val.style.animationDelay = (0.9 + i * 0.25) + 's';
+      document.querySelector('.rows').appendChild(row);
+    });
+  </script>
+</body></html>

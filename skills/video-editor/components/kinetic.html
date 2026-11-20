@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- Big emphasis words that pop in one by one, without a card. See components/README.md.
+     Params: text (required; words split on spaces), highlight (list of word positions from 0, or words, drawn in accent),
+             y (0-1 vertical center, default .11), size (vmin, default 10), stagger (seconds between words, default .18),
+             upper (true = uppercase, default true), theme, accent, ink, dur -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="overlay.css">
+<style>
+  :root { --y: .11; --size: 10; --enter: enter-fade; --leave: leave-pop; --in: .01s; }
+  /* Full-frame wrapper: a transformed ancestor becomes the containing block of absolute children. */
+  .life { position: absolute; inset: 0; }
+  .line { position: absolute; left: 4%; right: 4%; top: calc(var(--y) * 100%); transform: translateY(-50%);
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 0 2.4vmin; text-align: center; }
+  .w { display: inline-block; font-size: calc(var(--size) * 1vmin); font-weight: 900; line-height: 1.02; color: var(--ink);
+    -webkit-text-stroke: .35vmin rgba(0, 0, 0, .55); paint-order: stroke fill;
+    text-shadow: 0 .8vmin 2.4vmin rgba(0, 0, 0, .55); animation: word-in .38s cubic-bezier(.2, 1.2, .3, 1) both; }
+  .w.hi { color: var(--accent); }
+  body.upper .w { text-transform: uppercase; }
+  @keyframes word-in { 0% { opacity: 0; transform: translateY(3vmin) scale(.5); } 100% { opacity: 1; transform: none; } }
+</style></head>
+<body>
+  <!-- .life sits on its own wrapper: its leave animation sets transform, which would replace the
+       line's translateY(-50%) and make the words jump while fading out. -->
+  <div class="life"><div class="line"></div></div>
+  <script src="overlay.js"></script>
+  <script>
+    const p = window.OVERLAY.params;
+    if (p.upper !== false) document.body.classList.add('upper');
+    if (p.size) document.documentElement.style.setProperty('--size', p.size);
+    const hi = (p.highlight || []).map(h => String(h).toLowerCase());
+    String(p.text || '').split(/\s+/).filter(Boolean).forEach((word, i) => {
+      const el = document.createElement('span');
+      el.className = 'w' + (hi.includes(String(i)) || hi.includes(word.toLowerCase()) ? ' hi' : '');
+      el.textContent = word;
+      el.style.animationDelay = (0.05 + i * (p.stagger ?? 0.18)) + 's';
+      document.querySelector('.line').appendChild(el);
+    });
+  </script>
+</body></html>

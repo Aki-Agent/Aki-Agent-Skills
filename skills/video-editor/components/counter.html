@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- Animated number that counts up to a figure the speaker says. See components/README.md.
+     Params: to (required number), from (default 0), decimals (default 0), prefix, suffix, kicker, label, icon,
+             count (seconds the count takes, default 1.2), locale (default "es-AR": 1.500,5), top, theme, accent, dur -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="overlay.css">
+<style>
+  :root { --top: .015; }
+  .slot { position: absolute; left: 6%; right: 6%; top: calc(var(--top) * 100%); display: flex; justify-content: center; }
+  .card { background: var(--card); border-radius: 3vmin; padding: 2.4vmin 4.4vmin 2.8vmin; text-align: center;
+    box-shadow: 0 .8vmin 2.4vmin rgba(0, 0, 0, .35); border-bottom: 1vmin solid var(--accent); }
+  .kicker { display: flex; justify-content: center; align-items: center; gap: 1.4vmin; color: var(--accent);
+    font-size: 3.2vmin; font-weight: 800; letter-spacing: .3vmin; text-transform: uppercase; }
+  .kicker .ic { width: 4vmin; height: 4vmin; }
+  .num { font-size: 11.5vmin; font-weight: 900; line-height: 1; color: var(--accent); margin-top: .6vmin;
+    font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .label { font-size: 4vmin; color: var(--muted); font-weight: 700; margin-top: .6vmin; }
+</style></head>
+<body>
+  <div class="slot"><div class="card life">
+    <div class="kicker"><span class="ic" data-icon="icon"></span><span data-p="kicker"></span></div>
+    <div class="num">0</div>
+    <div class="label" data-p="label"></div>
+  </div></div>
+  <script src="overlay.js"></script>
+  <script>
+    const p = window.OVERLAY.params;
+    const el = document.querySelector('.num');
+    const from = +p.from || 0, to = +p.to || 0, secs = +p.count || 1.2;
+    const fmt = new Intl.NumberFormat(p.locale || 'es-AR', { minimumFractionDigits: +p.decimals || 0, maximumFractionDigits: +p.decimals || 0 });
+    const show = v => { el.textContent = (p.prefix || '') + fmt.format(v) + (p.suffix || ''); };
+    const t0 = performance.now();
+    // Ease-out so the last digits settle instead of stopping abruptly; driven by the renderer's virtual clock.
+    const tick = () => {
+      const k = Math.min(1, (performance.now() - t0) / (secs * 1000) - 0.15 / secs);
+      const e = k <= 0 ? 0 : 1 - Math.pow(1 - k, 3);
+      show(from + (to - from) * e);
+      if (k < 1) requestAnimationFrame(tick);
+    };
+    show(from);
+    requestAnimationFrame(tick);
+  </script>
+</body></html>

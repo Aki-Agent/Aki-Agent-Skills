@@ -1,0 +1,33 @@
+{
+  "accent": "#ffb020",
+  "events": [
+    {"type": "callout", "start": 0.1, "end": 3.6,
+     "params": {"kicker": "The question", "title": "Will AI replace us?", "icon": "alert", "top": 0.02}},
+
+    {"type": "punch", "start": 4.0, "end": 5.8, "zoom": 1.2, "center": [0.49, 0.37],
+     "reason": "emphasis on the answer"},
+
+    {"type": "badge", "start": 10.4, "end": 15.6,
+     "params": {"label": "Alignment team", "sub": "<COMPANY>", "icon": "shield", "variant": "banner", "y": 0.11}},
+
+    {"type": "split", "start": 15.7, "end": 26.1, "person": "bottom", "person_y": 0.17,
+     "panel": {"params": {"kicker": "What is alignment?", "title": "AI that follows our values",
+       "items": [
+         {"icon": "flag", "text": "Its goals", "at": 2.7},
+         {"icon": "bolt", "text": "How it acts", "at": 4.0},
+         {"icon": "users", "text": "Human ethics", "at": 7.8}
+       ]}}},
+
+    {"type": "callout", "start": 49.6, "end": 52.9,
+     "params": {"kicker": "The warning", "figure": "10 years", "text": "said in the video, not a measured fact", "icon": "clock", "top": 0.02}},
+
+    {"type": "broll", "start": 52.9, "end": 58.6,
+     "params": {"src": "assets/example.png", "kicker": "The race", "caption": "Nobody wants to stop", "zoom_from": 1.0, "zoom_to": 1.12}},
+
+    {"type": "screenshot", "start": 89.8, "end": 95.8,
+     "params": {"src": "assets/screenshot.png", "caption": "Quote the speaker, not a headline", "w": 0.66, "top": 0.565}},
+
+    {"type": "badge", "start": 175.2, "end": 177.1,
+     "params": {"label": "Leave a comment", "icon": "chat", "variant": "button", "y": 0.8}}
+  ]
+}
