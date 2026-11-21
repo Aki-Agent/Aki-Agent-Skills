@@ -65,12 +65,16 @@ RENDERER = Path(__file__).resolve().parent / "overlay_render.js"
 
 OVERLAY_TYPES = {"callout", "badge", "screenshot", "broll",
                  "lower-third", "counter", "quote", "steps", "versus", "bars", "kinetic",
-                 "highlight", "timeline", "chapter"}
+                 "highlight", "timeline", "chapter",
+                 "toast", "terminal", "chips", "gauge", "kpi-row", "progress"}
+# Full-frame screens (components/screen-*.html): they replace the footage while the audio plays.
+SCREEN_TYPES = {"screen-chart", "screen-donut", "screen-stats", "screen-detail", "screen-compare", "screen-list"}
+OVERLAY_TYPES |= SCREEN_TYPES
 LAYOUT_TYPES = {"punch", "split"}
 # Full-frame cutaways go under the cards: a callout over b-roll stays readable.
-LAYER = {"broll": 10, "screenshot": 20, "callout": 20, "badge": 30}
+LAYER = {"broll": 10, "screenshot": 20, "callout": 20, "badge": 30, **{name: 10 for name in SCREEN_TYPES}}
 # Overlays that are meant to cover the person are not checked against the face.
-COVERS_PERSON = {"broll", "chapter"}
+COVERS_PERSON = {"broll", "chapter"} | SCREEN_TYPES
 
 MAP_COLS, MAP_ROWS = 9, 16
 PERSON_CELL = 0.2   # skin share that marks a cell as the face or torso
@@ -208,7 +212,7 @@ def _resolve_images(params: dict, base: Path) -> str | None:
 
 def render_jobs(events: list[dict], width: int, height: int, fps: float, renders: Path) -> tuple[list[dict], dict]:
     """One job per component clip. A job whose inputs did not change is reused."""
-    shared = [COMPONENTS / "overlay.js", COMPONENTS / "overlay.css"]
+    shared = [COMPONENTS / "overlay.js", COMPONENTS / "overlay.css", COMPONENTS / "screen.js", COMPONENTS / "screen.css"]
     jobs: list[dict] = []
     for event in events:
         if event["type"] == "punch":

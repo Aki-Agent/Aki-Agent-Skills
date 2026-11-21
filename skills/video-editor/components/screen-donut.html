@@ -1,0 +1,86 @@
+<!doctype html>
+<!-- Full-frame donut (share) chart with a legend. Replaces the footage.
+     Use only shares the video states; if it is an illustration, say so in "note".
+     See components/README.md ("Screens").
+     Params: items [{label, value, display, color}] (values are relative: they do not need to add up to 100),
+             center (big text in the hole; default: the "highlight" item's share, or the first one),
+             center_label (small line under it), highlight (index), suffix (default "%"), decimals,
+             palette (list of colors used when an item has no color; the first default is the accent),
+             title, kicker, icon, text, note, source, locale, theme, accent, bg, panel, pattern, font, dur -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="overlay.css">
+<link rel="stylesheet" href="screen.css">
+<style>
+  .wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5vmin; }
+  body.landscape .wrap { flex-direction: row; gap: 6vmin; }
+  .ring { position: relative; width: min(62vmin, 100%); aspect-ratio: 1; flex: none; }
+  body.landscape .ring { width: min(48vmin, 50%); }
+  .ring svg { transform: rotate(-90deg); overflow: visible; }
+  .ring circle { fill: none; stroke-width: 15; }
+  .ring .base { stroke: var(--panel); }
+  .ring .seg { animation: seg .9s cubic-bezier(.3, .8, .2, 1) both; }
+  .ring .seg.dim { opacity: .45; }
+  @keyframes seg { from { stroke-dasharray: 0 100; } }
+  .hole { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .big { font-size: 12vmin; font-weight: 900; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .small { font-size: 3.4vmin; font-weight: 700; color: var(--muted); margin-top: 1vmin; max-width: 70%; }
+  .legend { list-style: none; display: flex; flex-direction: column; gap: 1.8vmin; width: 100%; }
+  body.landscape .legend { flex: 1; min-width: 0; }
+  /* Vertical frames with 4+ items: two legend columns, or the legend runs into the subtitles. */
+  body.portrait .legend.two { display: grid; grid-template-columns: 1fr 1fr; }
+  .legend li { display: grid; grid-template-columns: 3.4vmin 1fr auto; align-items: center; gap: 2vmin; padding: 1.6vmin 2.4vmin; }
+  .sw { width: 3.4vmin; height: 3.4vmin; border-radius: 1vmin; background: var(--c); }
+  .lab { font-size: 4vmin; font-weight: 700; line-height: 1.15; }
+  .val { font-size: 4vmin; font-weight: 900; font-variant-numeric: tabular-nums; }
+</style></head>
+<body>
+  <div class="screen cols life">
+    <div class="deco"></div>
+    <div class="head rise">
+      <div class="kicker"><span class="ic" data-icon="icon"></span><span data-p="kicker"></span></div>
+      <div class="title" data-p="title"></div>
+      <div class="text" data-p="text"></div>
+    </div>
+    <div class="body"><div class="wrap">
+      <div class="ring"><svg viewBox="0 0 100 100"><circle class="base" cx="50" cy="50" r="40"/></svg>
+        <div class="hole rise" style="--d: 1.2s"><div class="big"></div><div class="small" data-p="center_label"></div></div></div>
+      <ul class="legend"></ul>
+    </div></div>
+    <div class="foot rise" style="--d: 1s"><span data-p="note"></span><span class="source" data-p="source"></span></div>
+  </div>
+  <script src="overlay.js"></script>
+  <script src="screen.js"></script>
+  <script>
+    const { params: p, el, fmt } = window.SCREEN;
+    const items = p.items || [];
+    const palette = p.palette || ['var(--accent)', '#3b82f6', '#3ddc84', '#ff5c5c', '#a78bfa', '#22d3ee', '#f472b6'];
+    const total = items.reduce((sum, i) => sum + Math.max(0, +i.value || 0), 0) || 1;
+    const suffix = p.suffix ?? '%';
+    const share = item => Math.max(0, +item.value || 0) / total * 100;
+    const shown = item => item.display ?? (fmt(share(item), p.decimals) + suffix);
+    const svg = document.querySelector('.ring svg');
+    const legend = document.querySelector('.legend');
+    if (items.length > 3) legend.classList.add('two');
+    let offset = 0;
+    items.forEach((item, i) => {
+      const color = item.color || palette[i % palette.length];
+      const delay = 0.4 + i * 0.3;
+      const seg = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      Object.entries({ class: 'seg' + (p.highlight !== undefined && +p.highlight !== i ? ' dim' : ''), cx: 50, cy: 50, r: 40,
+        pathLength: 100, stroke: color }).forEach(([k, v]) => seg.setAttribute(k, v));
+      // A small gap between segments keeps neighbouring colors apart.
+      const len = Math.max(0, share(item) - (items.length > 1 ? 0.6 : 0));
+      seg.style.strokeDasharray = `${len} 100`;
+      seg.style.strokeDashoffset = -offset;
+      seg.style.animationDelay = delay + 's';
+      offset += share(item);
+      svg.appendChild(seg);
+      const li = legend.appendChild(el('li', 'tile rise'));
+      li.style.setProperty('--d', delay + 's');
+      li.style.setProperty('--c', color);
+      li.append(el('span', 'sw'), el('span', 'lab', item.label), el('span', 'val', shown(item)));
+    });
+    const main = items[p.highlight !== undefined ? +p.highlight : 0];
+    document.querySelector('.big').textContent = p.center ?? (main ? shown(main) : '');
+  </script>
+</body></html>

@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- Full-frame list of key points (a top 5, takeaways, an agenda). Replaces the footage.
+     Horizontal frames use two columns from 4 items. See components/README.md ("Screens").
+     Params: items [{title, text, icon, at}] (title = bold line, text = optional second line,
+               at = seconds after the screen opens when the item appears; sync it to the word)
+             numbered (default true: 01, 02...; false shows each item's icon, or a check),
+             title, kicker, icon, text, note, source, theme, accent, bg, panel, pattern, font, dur -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="overlay.css">
+<link rel="stylesheet" href="screen.css">
+<style>
+  .list { list-style: none; display: grid; gap: 2.4vmin; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); }
+  .list li { display: flex; align-items: center; gap: 3vmin; padding: 2.6vmin 3vmin; }
+  .badge { flex: none; width: 10vmin; height: 10vmin; border-radius: 2.4vmin; display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); font-size: 4.6vmin; font-weight: 900;
+    font-variant-numeric: tabular-nums; }
+  .badge svg { width: 60%; height: 60%; }
+  .t { font-size: 4.6vmin; font-weight: 800; line-height: 1.15; }
+  .s { font-size: 3.4vmin; color: var(--muted); line-height: 1.25; margin-top: .6vmin; }
+  body.landscape .badge { width: 8.4vmin; height: 8.4vmin; font-size: 3.8vmin; }
+  body.landscape .t { font-size: 3.8vmin; }
+  body.landscape .s { font-size: 3vmin; }
+</style></head>
+<body>
+  <div class="screen life">
+    <div class="deco"></div>
+    <div class="head rise">
+      <div class="kicker"><span class="ic" data-icon="icon"></span><span data-p="kicker"></span></div>
+      <div class="title" data-p="title"></div>
+      <div class="text" data-p="text"></div>
+    </div>
+    <div class="body"><ol class="list"></ol></div>
+    <div class="foot rise" style="--d: .8s"><span data-p="note"></span><span class="source" data-p="source"></span></div>
+  </div>
+  <script src="overlay.js"></script>
+  <script src="screen.js"></script>
+  <script>
+    const { params: p, icon, landscape, el, at } = window.SCREEN;
+    const items = p.items || [];
+    const list = document.querySelector('.list');
+    if (landscape && items.length > 3) list.style.setProperty('--cols', 2);
+    items.forEach((item, i) => {
+      const li = list.appendChild(el('li', 'tile rise'));
+      li.style.setProperty('--d', at(item, i, 0.5, 0.4) + 's');
+      const badge = li.appendChild(el('span', 'badge'));
+      if (p.numbered === false) badge.innerHTML = icon(item.icon) || icon('check');
+      else badge.textContent = String(i + 1).padStart(2, '0');
+      const body = li.appendChild(el('div', ''));
+      body.appendChild(el('div', 't', item.title));
+      if (item.text) body.appendChild(el('div', 's', item.text));
+    });
+  </script>
+</body></html>

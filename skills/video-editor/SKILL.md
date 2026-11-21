@@ -307,6 +307,10 @@ The third stage, after the cut (silence + script) and the subtitles. It adds wha
 | Screen changes to an example image with a very slow zoom | `broll` | `components/broll.html` (linear Ken Burns, default 1.0 → 1.12) |
 | Zoom on the speaker at a key moment | `punch` | FFmpeg crop + scale, no component |
 | Person on one half, explainer on the other | `split` | FFmpeg crop + `components/split-panel.html` |
+| Notification, typed terminal, keyword chips, ring gauge, row of figures, progress bar | `toast`, `terminal`, `chips`, `gauge`, `kpi-row`, `progress` | `components/<type>.html` |
+| Full screen **instead of the footage** (audio continues): chart, donut, big figures, description with image, comparison table, list | `screen-chart`, `screen-donut`, `screen-stats`, `screen-detail`, `screen-compare`, `screen-list` | `components/<type>.html` + `screen.css`/`screen.js`; each one lays itself out for vertical or horizontal |
+
+Screens are the way to vary the picture: 4-8 s, at most one every 20-30 s, starting on the word that introduces the content. They keep the bottom 13% empty for the burned subtitles. See "Screens" in the [component catalog](components/README.md).
 
 ```bash
 # 1. Write the plan against the FINAL transcript (word timestamps), then validate it
@@ -367,9 +371,13 @@ components/
   overlay.css           shared base: transparent page, .life enter/leave, keyframes
   overlay.js            shared runtime: params from the URL hash, text slots, icons, positions
   callout.html  badge.html  screenshot.html  broll.html  split-panel.html
+  (more overlays: see components/README.md)
+  screen.css, screen.js shared base of the full-frame screens: opaque themed background, orientation, footer
+  screen-*.html         full-frame screens (chart, donut, stats, detail, compare, list)
   scenes/race.html      illustration for a b-roll (render it as a still first)
   scenes/trend.html     labeled trend chart for a screenshot card, tagged as an illustration
   examples/enhance.example.json   a plan with every event type
+  examples/screens.example.json   a 70 s plan with the six screens and toast/terminal/chips/gauge/kpi-row/progress
   examples/stills.example.json    renders the two images that plan uses into examples/assets/ (git-ignored)
 ```
 

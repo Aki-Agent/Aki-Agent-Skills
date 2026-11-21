@@ -40,6 +40,13 @@ Never invent data. A number on screen must be a number the video says. If a char
 | The screen changes to an example image | `broll` | full frame |
 | Person on one half, explanation on the other | `split` + `split-panel` (or `steps`, `bars`, `timeline` with `bg`) | half frame |
 | Zoom on the speaker | `punch` (not a component) | full frame |
+| An app notification ("message received", "download finished") | `toast` | top band |
+| A command typed in a terminal, with its output | `terminal` | top band, up to 4 lines; **split panel** with more |
+| Several keywords, tools or topics at once | `chips` | top band, or `y` over the chest |
+| One share or score ("92% accuracy") | `gauge` | top band |
+| Two to four short figures side by side ("16 GB · 3 min · Free") | `kpi-row` | top band |
+| Progress of a task ("downloading 72%") | `progress` | top band |
+| A chart, a description, a spec sheet, a table or a list **instead of the footage** | a `screen-*` (see "Screens") | full frame, 4-8 s |
 
 ## Safe zones
 
@@ -55,6 +62,8 @@ Measured on the 720x1280 test recording (a person filling a vertical frame, subt
 Every other recording is different: run `enhance` once and read the warnings, which measure the real head and the real subtitle band of that video.
 
 On a horizontal frame the short side is the height, so the same `vmin` sizes are relatively smaller and there is room on the sides. The checks still apply.
+
+Measured on a 1280x720 screen recording with the speaker's webcam in the upper left (skin at x 0.12-0.31, y 0.22-0.55): centered top cards covered 25-50% of the head (`kpi-row` 50%, `terminal` and `progress` 33%, `gauge` 25%). Moving them with `"x": 0.68` cleared every warning. On horizontal, `toast`, `terminal`, `kpi-row` and `progress` default to a narrower width (0.5-0.6 of the frame) so they fit beside a webcam; set `x` to the side the webcam is not on.
 
 ## Colors, theme, font and position
 
@@ -364,6 +373,265 @@ The explanatory half of a `split`, with a title and a list of icon items. It is 
 
 See the `split` example in `SKILL.md`.
 
+### toast
+
+A phone-style notification that drops in from the top with a small bounce.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `title` | yes | Bold line |
+| `text` | | Body, clamped to two lines |
+| `app` | | Small app name at the top left |
+| `time` | | Text at the top right, default `"now"` (`""` hides it) |
+| `icon` | | App icon on an accent square |
+| `top` | | Default `.02` |
+| `x`, `w` | | Horizontal center and width, shares of the frame. Default `x .5`; `w .9` on vertical, `.5` on horizontal |
+
+```json
+{"type": "toast", "start": 12.0, "end": 15.5, "params": {"app": "Messages", "icon": "chat", "title": "New message", "text": "The model finished downloading"}}
+```
+
+Ends at 216 px on vertical with a two-line body. The icon square uses `accent`; the text on it is always dark, so keep a light accent.
+
+### terminal
+
+A terminal window. `cmd` lines are typed character by character with the prompt; output lines appear after them. Show only commands and output the video shows or says.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `lines` | yes | `[{text, type, at}]`; `type` `"cmd"` (typed), `"out"` (default, muted), `"ok"` (green), `"err"` (red); `at` = seconds after the event starts |
+| `title` | | Window title next to the three dots |
+| `prompt` | | Default `"$"`; `">"` or `"PS>"` for Windows |
+| `cps` | | Typing speed in characters per second, default `28` |
+| `x`, `w`, `top` | | Horizontal center (default `.5`), width share (`.9` on vertical, `.6` on horizontal) and top edge (default `.015`) |
+| `mono` | | Monospace font list; default tries Cascadia, Consolas, DejaVu Sans Mono, Liberation Mono |
+| `bg` | for a split panel | Opaque background |
+
+Without `at`, each line starts when the previous one is done (a `cmd` takes `length / cps` seconds plus 0.35 s). Make the event long enough: the sum of all typing plus 1.5 s. Four short lines end at 259 px on vertical; a command longer than about 30 characters wraps on vertical.
+
+```json
+{"type": "terminal", "start": 40.0, "end": 46.0, "params": {"title": "bash", "lines": [{"type": "cmd", "text": "pip install example-package"}, {"text": "Collecting example-package"}, {"type": "ok", "text": "Successfully installed"}]}}
+```
+
+Change the colors with `"vars": {"good": "#3ddc84", "bad": "#ff5c5c"}`; the prompt uses `accent`, the window `card`.
+
+### chips
+
+Keyword chips popping in one by one, wrapped and centered.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `items` | yes | `["Python", "Docker"]` or `[{text, icon, at, tone}]`; `tone: "accent"` fills one chip with the accent |
+| `title` | | Line above the chips |
+| `variant` | | `"solid"` (default, `card` background) or `"outline"` (accent border) |
+| `top` or `y` | | `top`: top edge, default `.02`. `y`: vertical center instead (for example `.7` over the chest) |
+
+```json
+{"type": "chips", "start": 3.0, "end": 7.0, "params": {"title": "Tools in this video", "items": ["Python", {"text": "Docker", "icon": "bolt", "tone": "accent"}, "FFmpeg"]}}
+```
+
+Five chips with a title end at 219 px on vertical (two rows). Up to about 7 short words fit the top band.
+
+### gauge
+
+A ring that fills to a share while the number counts up, with a label on the right.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `value` | yes | The figure |
+| `max` | | Value of a full ring, default `100` |
+| `suffix` | | Default `"%"`; `""` for none; `"/10"` for a score |
+| `display` | | Fixed text in the ring instead of the count |
+| `kicker`, `label`, `text`, `icon` | | Text on the right |
+| `count` | | Seconds the fill takes, default `1.2` |
+| `x`, `top` | | Horizontal center of the card (default `.5`) and top edge (default `.015`) |
+
+```json
+{"type": "gauge", "start": 22.0, "end": 25.5, "params": {"kicker": "Accuracy", "icon": "check", "value": 92, "label": "Correct answers"}}
+```
+
+Ends at 243 px on vertical. The empty part of the ring is `"vars": {"track": "rgba(255,255,255,.15)"}`.
+
+### kpi-row
+
+Two to four short figures side by side in one card, with separators. Fixed text, no count.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `items` | yes | `[{value, label, icon}]`; `value` is the text shown big (`"16 GB"`) |
+| `title` | | Line above the row |
+| `highlight` | | Index drawn in accent; the others turn `ink`. Default: all in accent |
+| `x`, `w`, `top` | | Horizontal center (default `.5`), width (`.9` on vertical, `.6` on horizontal), top edge (default `.015`) |
+
+```json
+{"type": "kpi-row", "start": 30.0, "end": 34.0, "params": {"title": "What you need", "items": [{"value": "16 GB", "label": "RAM"}, {"value": "3 min", "label": "Setup"}, {"value": "Free", "label": "Price"}]}}
+```
+
+Ends at 240 px on vertical with icons. The values shrink together when they are long, so four values like `"1.000.000"` still fit one row.
+
+### progress
+
+A labeled bar that fills while the percentage counts up. Striped and moving by default.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `value` | yes | The figure |
+| `max` | | Value of a full bar, default `100` |
+| `label`, `kicker`, `icon` | | Text above the bar |
+| `suffix`, `display` | | As in `gauge` |
+| `fill` | | Seconds the fill takes, default `1.6` |
+| `striped` | | `false` for a flat bar |
+| `x`, `w`, `top` | | Horizontal center (default `.5`), width (`.88` on vertical, `.55` on horizontal), top edge (default `.015`) |
+
+```json
+{"type": "progress", "start": 50.0, "end": 53.5, "params": {"kicker": "Downloading", "label": "Model weights", "value": 72}}
+```
+
+Ends at 203 px on vertical.
+
+## Screens
+
+A screen **replaces the footage** for a few seconds while the audio keeps playing: the viewer stops seeing the speaker and sees a chart, a description, a spec sheet, a table or a list. Use them to vary the picture, not on top of it. Each screen lays itself out for the orientation of the frame, so the same event works on a vertical and a horizontal video:
+
+| Screen | Vertical frame | Horizontal frame |
+|---|---|---|
+| `screen-chart` | heading on top, chart below | heading on the left (36%), chart on the right |
+| `screen-donut` | heading, ring, legend (2 columns from 4 items) | heading left, ring and legend right |
+| `screen-stats` | 1 column up to 3 figures, 2 columns from 4 | one row up to 4 figures, 3 columns for 5-6 |
+| `screen-detail` | image on top, text and details below | image on the left (46%), text on the right |
+| `screen-compare` | heading on top, table below | heading left, table right |
+| `screen-list` | one column | two columns from 4 items |
+
+How to use them well:
+
+- **4-8 s each**, starting on the word that introduces the content and ending when the speaker moves on. Shorter and nobody reads it; longer and the video feels like slides.
+- **Alternate** with the speaker: at most one screen every 20-30 s. Two screens in a row look like a presentation.
+- The bottom 13% stays empty (`safe_bottom`) because the **subtitles are burned on top** of the screen. On a video without subtitles set `"safe_bottom": 0.06`.
+- A screen fades in and out over 0.3 s (crossfade with the footage). A card (`callout`, `badge`...) can run on top of a screen: screens are on the bottom layer, like `broll`.
+- The face check does not apply (it covers the person on purpose), and the subtitle check does not either.
+- Never invent data: a chart must use numbers the video says. If it is an illustration, say so in `note`.
+
+Shared params of every screen (on top of the shared settings above):
+
+| Param | What it changes | Default |
+|---|---|---|
+| `kicker`, `icon`, `title`, `text` | Heading: small accent label, title (up to 2 lines), one or two sentences of description | none |
+| `note`, `source` | Footer left and right ("Example data", "Source: ...") | none |
+| `bg` | Screen background | `#0b0e15` on `dark`/`glass`, `#f3f4f8` on `light` |
+| `panel` | Background of inner tiles, table columns and tracks | white 7% on dark, black 6% on light |
+| `pattern` | Background decoration: `"glow"` (accent light in two corners), `"grid"` (moving grid lines), `"none"` | `"glow"` |
+| `safe_bottom` | Share of the height kept empty at the bottom for the subtitles | `0.13` |
+| `locale` | Number format | `"es-AR"` |
+
+A light branded screen: `{"theme": "light", "accent": "#2563eb", "pattern": "none"}`. A dark screen with your brand color: `{"accent": "#3ddc84", "bg": "#071a12"}`.
+
+Rendering cost: a screen is an opaque full frame, the most expensive clip type (as `broll`). Keep them short and few, especially in the sandbox.
+
+`examples/screens.example.json` uses all six screens and the six overlays above in 70 s. The screens worked unchanged on a vertical and on a horizontal video; on the horizontal one the top cards needed `"x": 0.68` (see "Safe zones"). It is a catalog, not a pacing model: a real video uses far fewer. Measured on a local Windows machine, not the sandbox: 12 clips rendered in 107 s for a 720x1280 30 fps cut and in 190 s for a 1280x720 60 fps cut (twice the frames); the encode took 4-6 s. A re-run after moving 5 cards rendered only those 5 (52.6 s) and reused the 7 others. In both outputs each screen matched its rendered clip on 100% of the pixels at mid-event, and no overlay changed the lower 60% of the frame.
+
+### screen-chart
+
+Bars, columns or a line, with a heading.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `items` | yes | `[{label, value, display, color}]`; `display` replaces the printed value |
+| `chart` | | `"bars"` (default, horizontal), `"columns"` (vertical), `"line"` |
+| `highlight` | | Index drawn in accent; the others are dimmed. Use it for "the one that matters" |
+| `prefix`, `suffix`, `decimals` | | Value format: `"$"`, `" GB"`, `"%"` |
+| `max` | | Value of a full bar; default the largest |
+| `min` | | Line only: bottom of the scale, default `0` (or the lowest negative value) |
+
+```json
+{"type": "screen-chart", "start": 61.2, "end": 67.5, "params": {"kicker": "Memory", "title": "RAM each model needs", "items": [{"label": "Model A", "value": 8}, {"label": "Model B", "value": 16}, {"label": "Model C", "value": 64}], "suffix": " GB", "highlight": 2, "note": "Example data"}}
+```
+
+Tested up to 6 items with a two-line title on both orientations. On a line, only the highlighted point (or the last one) shows its value.
+
+### screen-donut
+
+A ring split into shares, a big figure in the hole and a legend.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `items` | yes | `[{label, value, display, color}]`; values are relative, they do not need to add up to 100 |
+| `center` | | Big text in the hole; default the share of `highlight` (or of the first item) |
+| `center_label` | | Small line under it |
+| `highlight` | | Index kept bright; the others are dimmed |
+| `palette` | | Colors for items without `color`; default accent, blue, green, red, violet, cyan, pink |
+| `suffix`, `decimals` | | Default `"%"`, `0` |
+
+```json
+{"type": "screen-donut", "start": 80.0, "end": 86.0, "params": {"kicker": "Market share", "title": "Who uses what", "items": [{"label": "Option A", "value": 52}, {"label": "Option B", "value": 30}, {"label": "Option C", "value": 18}], "center_label": "Option A", "note": "Example data"}}
+```
+
+Tested up to 5 items with a two-line title. More than 6 slices are unreadable: group the small ones as "Other".
+
+### screen-stats
+
+Big figures that count up, in tiles.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `items` | yes | `[{value, label, text, icon, prefix, suffix, decimals, display, from, at}]`; `display` shows fixed text instead of a count (`"24/7"`, `"4K"`) |
+| `count` | | Seconds each count takes, default `1.2` |
+
+```json
+{"type": "screen-stats", "start": 95.0, "end": 101.0, "params": {"kicker": "In numbers", "title": "The project today", "items": [{"value": 1500, "label": "Downloads", "icon": "users"}, {"value": 4.5, "decimals": 1, "suffix": " s", "label": "Answer time"}, {"display": "24/7", "label": "Available"}]}}
+```
+
+Tested with 2-6 figures. Use `at` to make each tile appear on the word that says it.
+
+### screen-detail
+
+A description screen: title, a short paragraph, a list of details and an optional image.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `title` | yes | Name of the thing |
+| `text` | | One to three sentences |
+| `items` | | `[{label, text, icon, at}]`; with `label` it is a spec row (`"RAM"` … `"32 GB"`), without it a bullet (icon or dot) |
+| `src` | | Image path, relative to the plan. Optional: without it the text is centered |
+| `caption`, `tag` | | Line under the image, accent label over it |
+| `fit` | | `"cover"` (default, fills and crops) or `"contain"` (whole image, for screenshots) |
+
+```json
+{"type": "screen-detail", "start": 110.0, "end": 117.0, "params": {"kicker": "The device", "title": "Example mini PC", "text": "A small computer that runs local models.", "src": "assets/example.png", "tag": "Example", "items": [{"label": "RAM", "text": "32 GB"}, {"label": "Storage", "text": "1 TB"}]}}
+```
+
+On vertical the text takes the height it needs and the image fills the rest (never below 22% of the height); tested with 5 details, a two-line title and three sentences.
+
+### screen-compare
+
+A table: features in rows, 2-3 options in columns, the recommended column outlined in accent.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `columns` | yes | `["Cloud", "Local"]`, 2 or 3 names |
+| `rows` | yes | `[{label, values, at}]`; each value is `true` (green check), `false` (red cross) or a short text |
+| `best` | | Column index outlined in accent |
+
+```json
+{"type": "screen-compare", "start": 130.0, "end": 137.0, "params": {"title": "Cloud vs local", "columns": ["Cloud", "Local"], "best": 1, "rows": [{"label": "Privacy", "values": [false, true]}, {"label": "Setup", "values": ["None", "1 hour"]}]}}
+```
+
+Tested with 3 columns and 6 rows. Keep text values to one or two words; the check and cross colors are `"vars": {"good": ..., "bad": ...}`.
+
+### screen-list
+
+Numbered key points: a top 5, takeaways, an agenda.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `items` | yes | `[{title, text, icon, at}]`; `text` is an optional second line |
+| `numbered` | | Default `true` (01, 02…); `false` shows each item's `icon` (or a check) |
+
+```json
+{"type": "screen-list", "start": 150.0, "end": 158.0, "params": {"kicker": "Summary", "title": "Three takeaways", "items": [{"title": "Start small", "text": "One model, one task", "at": 0.5}, {"title": "Measure first", "at": 2.6}, {"title": "Keep it local", "at": 4.9}]}}
+```
+
+Tested with 6 items and a two-line title on both orientations.
+
 ### scenes/race.html and scenes/trend.html
 
 Not overlays: illustrations rendered once as PNG stills (see `examples/stills.example.json`), then passed as `src` to `broll` or `screenshot`. `race` takes `goal`, `question` and `lanes [{label, letter, color, ahead}]`; `trend` takes `title`, `subtitle`, `tag`, `note`, `points` (0-1 values) and `color`. `trend` labels itself as an illustration by default; keep it that way unless the points are real data from the video.
@@ -379,6 +647,8 @@ Copy the smallest one that is close (`quote.html` for a card, `kinetic.html` for
 - Read params from `window.OVERLAY.params` in a script placed **after** `overlay.js`. Fill text with `textContent`, never `innerHTML` with a param, so a quote with `<` cannot break the page.
 - Animate with CSS animations, `setTimeout` or `requestAnimationFrame` + `performance.now()`. The renderer runs a virtual clock; real time does not pass between frames.
 - Keep shadows small (`0 .8vmin 2.4vmin`): shadows are painted pixels and count as covering the face.
+- A new **screen** copies `screen-list.html` (the smallest): link `screen.css` after `overlay.css`, load `screen.js` after `overlay.js`, put the content in `.screen.life` with `.head`, `.body` and `.foot`, and use `window.SCREEN.el()` to create text nodes. Lay it out for both `body.portrait` and `body.landscape`, and add its name to `SCREEN_TYPES` in `scripts/enhance.py` (that also puts it on the bottom layer and skips the face check).
+- Test both orientations and the longest content you allow (two-line title, the maximum number of items): on the first test pass 6 horizontal bars left the frame, a 5-item donut legend reached the subtitle band and a long description pushed an image caption over the title.
 - Add the type name to `OVERLAY_TYPES` in `scripts/enhance.py` so plans can say `"type": "<name>"`; until then use `"component": "<name>"` with any `type`.
 - Render one still before using it in a plan, and check its painted box against the safe zones:
 

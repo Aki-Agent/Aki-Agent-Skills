@@ -1,0 +1,88 @@
+<!doctype html>
+<!-- Terminal window: commands are typed character by character, output lines appear after them.
+     Show only commands and output the video actually shows or says. See components/README.md.
+     Params: lines [{text, type, at}] (required)
+               type = "cmd" (typed, with the prompt) | "out" (plain output, default) | "ok" (green) | "err" (red)
+               at   = seconds after the event starts when the line begins; default: right after the previous one
+             title (window title), prompt (default "$"), cps (typing speed, characters per second, default 28),
+             top (default .015), x (horizontal center, default .5), w (width share; .9 vertical, .6 horizontal), bg (opaque background, needed as a split panel),
+             theme, accent, ink, muted, card, font, mono (monospace font), dur
+             vars: {"good": "#3ddc84", "bad": "#ff5c5c"} -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="overlay.css">
+<style>
+  :root { --top: .015; --x: .5; --w: .9; --good: #3ddc84; --bad: #ff5c5c;
+    --mono: "Cascadia Code", "Cascadia Mono", Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace; }
+  @media (orientation: landscape) { :root { --w: .6; } }
+  .slot { position: absolute; left: calc((var(--x) - var(--w) / 2) * 100%); width: calc(var(--w) * 100%); top: calc(var(--top) * 100%); }
+  .win { background: var(--card); border-radius: 2.4vmin; overflow: hidden; box-shadow: 0 .8vmin 2.4vmin rgba(0, 0, 0, .35); }
+  body.solid .win { box-shadow: none; }
+  .bar { display: flex; align-items: center; gap: 1.2vmin; padding: 1.6vmin 2.4vmin; background: rgba(127, 127, 127, .14); }
+  .bar i { width: 2.2vmin; height: 2.2vmin; border-radius: 50%; background: #ff5f57; }
+  .bar i:nth-child(2) { background: #febc2e; }
+  .bar i:nth-child(3) { background: #28c840; }
+  .bar .name { margin-left: 1.4vmin; font-size: 2.8vmin; color: var(--muted); font-weight: 700; }
+  .lines { padding: 2.2vmin 2.8vmin 2.6vmin; font-family: var(--mono); font-size: 3.4vmin; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+  .ln { min-height: 1.45em; }
+  .ln.hidden { display: none; }
+  .ln .pr { color: var(--accent); font-weight: 700; margin-right: 1.4vmin; }
+  .ln.out { color: var(--muted); }
+  .ln.ok { color: var(--good); }
+  .ln.err { color: var(--bad); }
+  .cursor { display: inline-block; width: .6em; height: 1.1em; vertical-align: -.15em; background: var(--ink); margin-left: .1em; }
+</style></head>
+<body>
+  <div class="slot"><div class="win life">
+    <div class="bar"><i></i><i></i><i></i><span class="name" data-p="title"></span></div>
+    <div class="lines"></div>
+  </div></div>
+  <script src="overlay.js"></script>
+  <script>
+    const p = window.OVERLAY.params;
+    if (p.bg) document.body.classList.add('solid');
+    if (p.mono) document.documentElement.style.setProperty('--mono', p.mono);
+    const cps = +p.cps || 28;
+    const box = document.querySelector('.lines');
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    // Timeline: each line starts at its own "at" or when the previous one is done.
+    let t = 0.5;
+    const lines = (p.lines || []).map(line => {
+      const type = line.type || 'out';
+      const start = line.at !== undefined ? +line.at : t;
+      const text = String(line.text ?? '');
+      const typing = type === 'cmd' ? text.length / cps : 0;
+      t = start + typing + (type === 'cmd' ? 0.35 : 0.15);
+      const row = document.createElement('div');
+      row.className = 'ln hidden ' + type;
+      if (type === 'cmd') {
+        const pr = document.createElement('span');
+        pr.className = 'pr';
+        pr.textContent = p.prompt ?? '$';
+        row.appendChild(pr);
+      }
+      const body = document.createElement('span');
+      row.appendChild(body);
+      box.appendChild(row);
+      return { row, body, text, start, typing };
+    });
+    const t0 = performance.now();
+    // Driven by the renderer's virtual clock: typed text is a function of time, not of setInterval ticks.
+    const tick = () => {
+      const now = (performance.now() - t0) / 1000;
+      let last = null;
+      lines.forEach(l => {
+        if (now < l.start) return;
+        l.row.classList.remove('hidden');
+        const k = l.typing ? Math.min(1, (now - l.start) / l.typing) : 1;
+        l.body.textContent = l.text.slice(0, Math.round(l.text.length * k));
+        last = l;
+      });
+      if (last) last.row.appendChild(cursor);
+      // Blink at 1 Hz, but stay solid while typing.
+      cursor.style.opacity = last && last.typing && now - last.start < last.typing ? 1 : (Math.floor(now * 2) % 2 ? 0 : 1);
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  </script>
+</body></html>

@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- Phone-style notification that drops in from the top: "New message", "Model downloaded".
+     See components/README.md.
+     Params: title (required), text, app (small app name), time (default "now"), icon (app icon),
+             top (default .02), x (horizontal center, default .5), w (width share; .9 vertical, .5 horizontal), theme, accent, ink, muted, card, font, dur -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="overlay.css">
+<style>
+  :root { --top: .02; --x: .5; --w: .9; --enter: toast-in; --in: .55s; }
+  /* Horizontal frames: a narrower card, so it can sit beside a webcam inset (move it with "x"). */
+  @media (orientation: landscape) { :root { --w: .5; } }
+  .slot { position: absolute; left: calc((var(--x) - var(--w) / 2) * 100%); width: calc(var(--w) * 100%); top: calc(var(--top) * 100%); }
+  .card { background: var(--card); border-radius: 3.4vmin; padding: 2.6vmin 3vmin; display: flex; gap: 2.6vmin; align-items: flex-start;
+    box-shadow: 0 .8vmin 2.4vmin rgba(0, 0, 0, .35); }
+  .app-ic { flex: none; width: 9vmin; height: 9vmin; border-radius: 2.2vmin; background: var(--accent); color: #111; padding: 1.8vmin; }
+  .main { flex: 1; min-width: 0; }
+  .row { display: flex; justify-content: space-between; gap: 2vmin; font-size: 3vmin; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .2vmin; }
+  .title { font-size: 4.4vmin; font-weight: 900; line-height: 1.15; margin-top: .6vmin; }
+  .text { font-size: 3.8vmin; color: var(--muted); line-height: 1.25; margin-top: .4vmin;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  @keyframes toast-in { 0% { opacity: 0; transform: translateY(-140%); } 70% { opacity: 1; transform: translateY(1.2vmin); } 100% { opacity: 1; transform: none; } }
+</style></head>
+<body>
+  <div class="slot"><div class="card life">
+    <span class="app-ic" data-icon="icon"></span>
+    <div class="main">
+      <div class="row"><span data-p="app"></span><span class="time"></span></div>
+      <div class="title" data-p="title"></div>
+      <div class="text" data-p="text"></div>
+    </div>
+  </div></div>
+  <script src="overlay.js"></script>
+  <script>
+    document.querySelector('.time').textContent = window.OVERLAY.params.time ?? 'now';
+  </script>
+</body></html>
