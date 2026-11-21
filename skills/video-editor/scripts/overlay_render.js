@@ -68,7 +68,7 @@ async function ensureBrowser() {
   const candidates = given ? [given]
     : process.platform === 'win32' ? ['msedge', 'chrome']
     : process.platform === 'darwin' ? ['/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
-    : ['microsoft-edge', 'google-chrome', 'chromium', 'chromium-browser'];
+    : ['google-chrome', 'chromium', 'chromium-browser', 'microsoft-edge'];
   for (const cmd of candidates) {
     // On Windows, "start" resolves App Paths entries such as msedge, which are usually not on PATH.
     const child = process.platform === 'win32' && !given
@@ -159,9 +159,10 @@ async function renderJob(cdp, job) {
     // Write to a .part file and rename on success: a killed or failed render must not leave
     // a file at the final path, or the cache in enhance.py would reuse it as finished.
     part = path.resolve(job.out) + '.part';
+    // Chrome already provides PNG frames with alpha; mux them without decoding and re-encoding.
     const ff = spawn(FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error',
       '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'png', '-i', '-',
-      '-c:v', 'png', '-pix_fmt', 'rgba', '-f', 'mov', part], { stdio: ['pipe', 'inherit', 'pipe'] });
+      '-c:v', 'copy', '-f', 'mov', part], { stdio: ['pipe', 'inherit', 'pipe'] });
     let ffErr = '';
     ff.stderr.on('data', d => { ffErr += d; });
     const ffDone = new Promise((r, j) => { ff.on('close', r); ff.on('error', e => j(new Error(`Could not run ffmpeg: ${e.message}`))); });
