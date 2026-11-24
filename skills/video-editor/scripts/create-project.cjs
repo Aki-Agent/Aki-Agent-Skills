@@ -34,6 +34,7 @@ try {
   fs.copyFileSync(source,path.join(target,"public",config.source));
   fs.copyFileSync(path.join(template,"index.jsx"),path.join(target,"src","index.jsx"));
   fs.copyFileSync(path.join(template,"Video.jsx"),path.join(target,"src","Video.jsx"));
+  fs.copyFileSync(path.join(template,"components.jsx"),path.join(target,"src","components.jsx"));
   fs.writeFileSync(path.join(target,"src","edit.js"),"export default "+JSON.stringify(config,null,2)+";\n");
   fs.writeFileSync(path.join(target,"src","captions.js"),"export default "+JSON.stringify(captions)+";\n");
   const pkg={name:"remotion-video-project",private:true,version:"1.0.0",dependencies:{"@remotion/cli":"4.0.546","@remotion/media":"4.0.546","@remotion/captions":"4.0.546",remotion:"4.0.546",react:"19.2.0","react-dom":"19.2.0"}};

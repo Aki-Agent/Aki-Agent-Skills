@@ -4,6 +4,7 @@ import {Video} from "@remotion/media";
 import {createTikTokStyleCaptions} from "@remotion/captions";
 import config from "./edit";
 import captions from "./captions";
+import {Overlay, Screen} from "./components";
 
 const pages = createTikTokStyleCaptions({captions, combineTokensWithinMilliseconds:1200}).pages;
 const toFrame = (seconds, fps) => Math.round(seconds * fps);
@@ -44,11 +45,9 @@ export const EditedVideo = () => {
         return <Sequence key={i} name={`Clip ${i+1}`} from={from} durationInFrames={length}><Clip start={start}/></Sequence>;
       })}
     </AbsoluteFill>
-    {config.overlays.map((item,i)=><Sequence key={i} name={`Overlay ${i+1}`} from={toFrame(item.start,fps)} durationInFrames={toFrame(item.end,fps)-toFrame(item.start,fps)}>
-      <div style={{position:"absolute",top:"7%",left:"5%",background:"#112b52",color:"#fff",font:`bold ${config.width*0.042}px Arial`,padding:"2% 3%",borderRadius:12}}>{item.text}</div>
-    </Sequence>)}
-    {config.screens.map((item,i)=><Sequence key={i} name={`Screen ${i+1}`} from={toFrame(item.start,fps)} durationInFrames={toFrame(item.end,fps)-toFrame(item.start,fps)}>
-      <AbsoluteFill style={{background:"#0c1831",color:"white",display:"flex",justifyContent:"center",alignItems:"center",font:`bold ${config.width*0.08}px Arial`,textAlign:"center",padding:"8%",boxSizing:"border-box"}}>{item.text}</AbsoluteFill>
-    </Sequence>)}
+    {config.screens.map((item,i)=>{ const length=toFrame(item.end,fps)-toFrame(item.start,fps);
+      return <Sequence key={i} name={`Screen ${i+1}: ${item.type ?? "title"}`} from={toFrame(item.start,fps)} durationInFrames={length}><Screen item={item} duration={length} theme={config.theme}/></Sequence>; })}
+    {config.overlays.map((item,i)=>{ const length=toFrame(item.end,fps)-toFrame(item.start,fps);
+      return <Sequence key={i} name={`Overlay ${i+1}: ${item.type ?? "callout"}`} from={toFrame(item.start,fps)} durationInFrames={length}><Overlay item={item} duration={length} theme={config.theme}/></Sequence>; })}
   </AbsoluteFill>;
 };
