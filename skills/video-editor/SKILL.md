@@ -20,7 +20,7 @@ Run locally, in the harness you are working in. Keep the video project in the ag
 | — Stills before approval | `npx.cmd remotion still --scale=0.25` | about 11 s per frame from the 4K original |
 | 7. Render after approval | `npx.cmd remotion render` | 61 frames at `--scale=0.25`: 21.6 s from the 720 px proxy, 56.8 s from the original |
 
-Requirements: Node.js, npx, FFmpeg 7+ and ffprobe on PATH; Python with `faster-whisper` for step 1. Tests: `node --test skills/video-editor/tests/video-editor.test.cjs` (7 tests, 3.9 s on an idle machine, synthetic audio). Every still or render copies `public/` into the bundle (475.7 MB on the sample), so keep unused media out of `public/`.
+Requirements: Node.js, npx, FFmpeg 7+ and ffprobe on PATH; Python with `faster-whisper` for step 1. Tests: `node --test skills/video-editor/tests/video-editor.test.cjs` (11 tests, 5.1–5.5 s on an idle machine, synthetic audio). Every still or render copies `public/` into the bundle (475.7 MB on the sample), so keep unused media out of `public/`.
 
 ## Always show the result in Remotion Studio
 
@@ -77,6 +77,42 @@ Silence detection depends on the noise floor. If the audit flags words or pauses
 ### Cutting false starts and stumbles
 
 Speakers restart sentences; silence detection never proposes this cut because the words are continuous. Find two similar openings a few seconds apart in the transcript, then split the clip that spans the stumble: exit at a local energy minimum right after the last kept word and re-enter just before the first word of the second take, both below −40 dB in a 20 ms energy profile. Captions need no manual work: the template drops every word that the kept clips do not cover (see "Captions"). Run `validate-edit.cjs` and check that the caption count fell by the stumble's words only (110 → 103 for a 7-word stumble on the sample).
+
+### Optional passes: only when the user asks
+
+These two passes are not part of the default pipeline. Run them only when the user asks for them, and only then. Both edit nothing: they produce proposals, you show them as a table (source seconds, what is removed, why, how the sentence reads after), and you change clips only after the user approves.
+
+**Throat clearings and noises.** Whisper rarely transcribes a throat clearing, and the silence planner keeps it because it is loud. Run, with the current project (or a plan JSON with `clips`, or `-` for the whole file):
+
+```powershell
+node <SKILL_DIR>/scripts/detect-noises.cjs "<VIDEO>" "<WORK_DIR>/transcript.json" "<PROJECT_DIR>" "<WORK_DIR>/noises.json"
+```
+
+- `candidates`: stretches inside kept clips that no word covers, above `--floor=-45` dB, 0.08–1.2 s, scored by shape (unvoiced, noisy, abrupt onset). `likely` means score ≥ `--min-score=0.6` and a real onset; a region with no energy rise (`tail`) is the end of the previous word, not a noise. Each one has a `cut` widened to the quietest frame within 150 ms, never into a word.
+- `wordlessClips`: kept clips that touch no word. `noise` and `quiet` ones can go; `voiced` ones may be speech Whisper missed. Re-transcribe each with `transcribe.py --clip START,END --model medium` (1 s of context on each side) before proposing a cut. If `medium` returns only an outro thank-you phrase over a short sound, it is hallucinating over non-speech: ask the user to listen.
+- `suspectWords`: low-probability, unusually long words that may hide a noise.
+
+Measured on a 10-minute, 4K talking head with 121 kept clips: 1.3–1.5 s, 89 regions checked. Its two likely candidates (score 0.91 and 0.84) were the two bursts of the throat clearing an earlier manual scan had located, each isolated in its own clip. It also listed 17 wordless clips; re-transcribing 4 of the 5 voiced ones at `medium` found a first take of a word the transcript had only from 78.6 s (the missed one is at 74.9 s), and two thank-you phrases hallucinated over short sounds. Without the project clips, a third candidate scored 0.61. It is a heuristic: confirm by ear before cutting.
+
+**Script consistency.** Read [references/script-review.md](references/script-review.md) and follow it. It prepares the kept script for your review:
+
+```powershell
+node <SKILL_DIR>/scripts/review-script.cjs "<WORK_DIR>/transcript.json" "<PROJECT_DIR>" "<WORK_DIR>/review.json"
+```
+
+It writes `review.json` and `review.txt`: kept words numbered by transcript index with source times and pauses, plus hints (repeated phrases within `--window=12` s, restart markers, truncated words, function words left hanging before a pause). You decide what goes; the hints are leads, not verdicts.
+
+#### Procedure (verified on the 10-minute test video)
+
+When the user asks for one or both passes, run them on the current project and follow these steps in order:
+
+1. Run `detect-noises.cjs` and `review-script.cjs` with `<PROJECT_DIR>`, writing into a new folder such as `<WORK_DIR>/optional/` (outputs are never overwritten).
+2. Re-transcribe every `voiced` wordless clip, every word you doubt, and the edges of every run the edit already removes (`kept: false` in `review.json`) with `transcribe.py --clip START,END --model medium`, 1 s of context on each side. `small` mishears leftovers: on the test video, three kept words at 417.1–417.5 s were the tail of a sentence the edit had already removed, and the word `medium` places at 424.0 s was attributed to 417.5 s by `small`.
+3. Read `review.txt` top to bottom and classify with [references/script-review.md](references/script-review.md).
+4. Extract a short WAV for every doubtful item so the user can listen: `ffmpeg -ss <START-0.5> -t <SECONDS> -i "<VIDEO>" -vn -ac 1 "<WORK_DIR>/optional/listen-<name>.wav"`.
+5. Present three groups: **safe cuts** (source seconds, removed text, reason, how the sentence reads after), **caption fixes** (retime, add a word Whisper dropped, spelling), and **to listen** (with the WAV paths). Do not cut parallel phrasing, emphasis or the only take of a sentence.
+6. After approval, apply each cut by deleting the whole clip when the cut matches a clip (the silence planner already put its edges in silence); otherwise split it as in "Cutting false starts and stumbles". Fix captions in `src/captions.js`, since `keptCaptions` drops the words of removed clips but cannot add a word or move it to where the audio has it.
+7. Run `validate-edit.cjs`, check that the caption count fell only by the removed words, and review the joins in Studio.
 
 ## 3. Create and open the project
 

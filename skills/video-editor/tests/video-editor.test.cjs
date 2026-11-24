@@ -120,3 +120,39 @@ test("validate-edit reports a negative item duration as an error", () => {
   assert.ok(result.errors.some((e) => /overlays\[0\].*duration of -30 frames/.test(e)), result.errors.join("\n"));
   assert.ok(result.errors.some((e) => /screens\[0\].*unknown type/.test(e)), result.errors.join("\n"));
 });
+
+const transcriptOf = (words) => ({segments: [{words: words.map(([word, start, end]) => ({word: " " + word, start, end, probability: 0.9}))}]});
+
+test("detect-noises flags an unvoiced burst between words and lists a wordless clip", () => {
+  // Words are 200 Hz tones at 0-1 s and 2-3 s; white noise at 1.3-1.6 s; a tone 3.5-3.8 s nobody transcribed.
+  const audio = path.join(tmp, "noise.wav"), report = path.join(tmp, "noises.json"), clips = path.join(tmp, "noise-clips.json");
+  execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i",
+    "aevalsrc=0.4*sin(2*PI*200*t)*(between(t\\,0\\,1)+between(t\\,2\\,3)+between(t\\,3.5\\,3.8))+0.3*(2*random(0)-1)*between(t\\,1.3\\,1.6):s=16000:d=4", audio]);
+  fs.writeFileSync(path.join(tmp, "noise-transcript.json"), JSON.stringify(transcriptOf([["uno", 0, 1], ["dos", 2, 3]])));
+  fs.writeFileSync(clips, JSON.stringify({clips: [{start: 0, end: 3.1}, {start: 3.45, end: 3.85}]}));
+  const run = spawnSync(process.execPath, [path.join(SKILL, "scripts", "detect-noises.cjs"), audio, path.join(tmp, "noise-transcript.json"), clips, report], {encoding: "utf8"});
+  assert.equal(run.status, 0, run.stderr);
+  const result = JSON.parse(fs.readFileSync(report, "utf8"));
+  const likely = result.candidates.filter((c) => c.likely);
+  assert.equal(likely.length, 1, run.stderr);
+  assert.ok(Math.abs(likely[0].start - 1.3) < 0.05 && Math.abs(likely[0].end - 1.6) < 0.05, JSON.stringify(likely[0]));
+  assert.ok(likely[0].cut[0] >= 1 && likely[0].cut[1] <= 2, "cut stays between the words");
+  assert.deepEqual(result.wordlessClips.map((c) => [c.start, c.kind]), [[3.45, "voiced"]]);
+});
+
+test("review-script numbers kept words and hints repeats, truncations and hanging words", () => {
+  const words = [["La", 0, 0.2], ["pregunta", 0.2, 0.6], ["es", 0.6, 0.8], ["redire,", 0.8, 1.2], ["la", 2, 2.2], ["pregunta", 2.2, 2.6],
+    ["es,", 2.6, 2.8], ["una", 2.8, 3], ["redirección", 3, 3.6], ["o", 3.6, 3.8], ["sea", 3.8, 4], ["para", 4, 4.2], ["corte.", 6, 6.5], ["fuera", 8, 8.5]];
+  const transcript = path.join(tmp, "review-transcript.json"), review = path.join(tmp, "review.json");
+  fs.writeFileSync(transcript, JSON.stringify(transcriptOf(words)));
+  fs.writeFileSync(path.join(tmp, "review-clips.json"), JSON.stringify({clips: [{start: 0, end: 7}]}));
+  const run = spawnSync(process.execPath, [path.join(SKILL, "scripts", "review-script.cjs"), transcript, path.join(tmp, "review-clips.json"), review], {encoding: "utf8"});
+  assert.equal(run.status, 0, run.stderr);
+  const result = JSON.parse(fs.readFileSync(review, "utf8"));
+  assert.equal(result.keptWords, 13, "the word after the last clip is not kept");
+  assert.deepEqual(result.hints.repeats.map((r) => [r.first, r.second]), [[[0, 2], [4, 6]]]);
+  assert.deepEqual(result.hints.truncated.map((t) => [t.at, t.completedAt]), [[3, 8]]);
+  assert.deepEqual(result.hints.restarts.map((r) => r.at), [9]);
+  assert.deepEqual(result.hints.hanging.map((h) => h.at), [11]);
+  assert.match(fs.readFileSync(review.replace(/\.json$/, ".txt"), "utf8"), /\[0000-0011\] +0\.00 \| La pregunta/);
+});
