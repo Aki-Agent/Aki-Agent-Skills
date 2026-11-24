@@ -109,13 +109,21 @@ def transcribe(args: argparse.Namespace) -> dict:
         )
         rows = []
         srt_rows = []
+        discarded_words = 0
         for segment_index, segment in enumerate(segments, start=1):
             words = []
             for word in segment.words or []:
+                start = round(float(word.start), 3)
+                end = round(float(word.end), 3)
+                if end <= start:
+                    # faster-whisper can emit a degenerate word span on low-confidence
+                    # tokens; drop the artifact instead of failing the whole pass.
+                    discarded_words += 1
+                    continue
                 words.append({
                     "word": word.word,
-                    "start": round(float(word.start), 3),
-                    "end": round(float(word.end), 3),
+                    "start": start,
+                    "end": end,
                     "probability": round(float(word.probability or 0.0), 4),
                 })
             row = {
@@ -139,10 +147,6 @@ def transcribe(args: argparse.Namespace) -> dict:
     elapsed = time.monotonic() - started
     for row in rows:
         for word in row["words"]:
-            if word["end"] <= word["start"]:
-                raise ToolError(
-                    f"faster-whisper emitted a non-positive word span: {word!r}"
-                )
             if total and (word["start"] >= total or word["end"] > total + 0.25):
                 raise ToolError(
                     f"faster-whisper timestamp falls outside the {total:.3f}s source: {word!r}"
@@ -156,6 +160,7 @@ def transcribe(args: argparse.Namespace) -> dict:
         "engine": "faster-whisper",
         "segments": rows,
         "elapsed_seconds": round(elapsed, 2),
+        "discarded_words": discarded_words,
     }
     transcript_path.write_text(json.dumps(transcript, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     script = [
@@ -165,6 +170,7 @@ def transcribe(args: argparse.Namespace) -> dict:
         f"- duration: {format_time(total)} ({total:.3f}s)",
         f"- model: faster-whisper {args.model}",
         f"- segments: {len(rows)}, words: {word_count}",
+        f"- discarded degenerate words: {discarded_words}",
         f"- elapsed: {elapsed:.2f}s",
         "",
         "## Timeline",
@@ -186,6 +192,7 @@ def transcribe(args: argparse.Namespace) -> dict:
         "duration_seconds": total,
         "segment_count": len(rows),
         "word_count": word_count,
+        "discarded_words": discarded_words,
         "elapsed_seconds": round(elapsed, 2),
     }
 
@@ -219,6 +226,8 @@ def main(argv: list[str] | None = None) -> int:
     print("Transcribed with local faster-whisper")
     for key in ("transcript_json", "script_markdown", "srt", "language", "duration_seconds", "segment_count", "word_count", "elapsed_seconds"):
         print(f"  {key}: {report[key]}")
+    if report.get("discarded_words"):
+        print(f"  discarded degenerate words: {report['discarded_words']}")
     if args.json:
         path = Path(args.json)
         path.parent.mkdir(parents=True, exist_ok=True)

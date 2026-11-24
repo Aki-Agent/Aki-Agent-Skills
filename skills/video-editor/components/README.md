@@ -362,6 +362,8 @@ The screen changes to an image with a slow linear zoom.
 
 Keep it 5-6 s: an opaque full frame is the slowest clip to render (171 frames in 23 s).
 
+Example images: generate them with the agent's built-in image generation, drop them next to the plan and pass them as `src`. Generate at the aspect ratio of the frame (vertical video: tall, horizontal video: wide) — a mismatched ratio makes `cover` crop the subject. The zoom never sits still: it is the point of the component. Any generated image is an illustration, not evidence: say so in `caption`, `tag` or `note`.
+
 ### split-panel
 
 The explanatory half of a `split`, with a title and a list of icon items. It is the only panel with its own opaque background; any other component used as a panel needs `bg`.
@@ -491,7 +493,7 @@ Ends at 203 px on vertical.
 
 ## Screens
 
-A screen **replaces the footage** for a few seconds while the audio keeps playing: the viewer stops seeing the speaker and sees a chart, a description, a spec sheet, a table or a list. Use them to vary the picture, not on top of it. Each screen lays itself out for the orientation of the frame, so the same event works on a vertical and a horizontal video:
+A screen **replaces the footage** for a few seconds while the audio keeps playing: the viewer stops seeing the speaker and sees a chart, a description, a spec sheet, a table or a list. Use them to vary the picture, not on top of it. See the "Fixed editing strategy: zoom and screens" section in SKILL.md for when and how many to use (one every 20-30 s, starting on the word that introduces the content). Each screen lays itself out for the orientation of the frame, so the same event works on a vertical and a horizontal video:
 
 | Screen | Vertical frame | Horizontal frame |
 |---|---|---|
@@ -600,6 +602,8 @@ A description screen: title, a short paragraph, a list of details and an optiona
 ```
 
 On vertical the text takes the height it needs and the image fills the rest (never below 22% of the height); tested with 5 details, a two-line title and three sentences.
+
+Example images: generate them with the agent's built-in image generation, saved next to the plan (`src` is a path relative to the plan), and pass `src`. Generate at the aspect ratio of the area the image fills (the frame's own ratio for a full-frame image; the image column's ratio for this one — full width, at least 22% of the height, on vertical; 46% of the width on the left, on horizontal). The image zooms slowly over the event (1.0 → 1.06); it never sits still. Any generated image is an illustration, not evidence: tag it in `caption`, `tag` or `note`.
 
 ### screen-compare
 

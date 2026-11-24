@@ -18,7 +18,7 @@ Local, deterministic video editing with FFmpeg. Nothing is uploaded: the scripts
 | `enhance` (components) | Node 22+ (native `WebSocket` and `fetch`) and Edge or Chrome discoverable by the renderer |
 | Local ASR fallback | `faster-whisper`; the default transcriber uses the sibling `video_transcription` skill when it is installed |
 
-No Python packages are required for the FFmpeg-only operations: they use the standard library. The optional local ASR fallback needs `faster-whisper` and an already cached model unless `--download-model` is explicitly supplied. `ffmpeg_lib.tool_path` honors `FFMPEG_PATH` and `FFPROBE_PATH` when the binaries are not on `PATH`.
+No Python packages are required for the FFmpeg-only operations: they use the standard library. The optional local ASR fallback needs `faster-whisper`; when a model is not already cached, use `--download-model` to fetch the required weights (a fresh sandbox has no weights). `ffmpeg_lib.tool_path` honors `FFMPEG_PATH` and `FFPROBE_PATH` when the binaries are not on `PATH`.
 
 ## Workflow: always recon before cutting
 
@@ -126,7 +126,7 @@ python3 scripts/script_cut.py video-output/tight.cuts.json --video tight.mp4 \
 
 **Transcribe the file you are going to cut.** Word timestamps are absolute, so transcribing the original and cutting the de-silenced version puts every boundary in the wrong place. Both `script_read` and `script_cut` warn when the transcript length does not match the video.
 
-`transcribe` prefers the `video_transcription` skill: it locates `transcribe_video.py`, runs it and reshapes the JSON into a timecoded script. Lookup order is `VIDEO_TRANSCRIPTION_DIR`, then `skills/` and `skill/` next to this skill, then the same names above the working directory. Its `.venv` is used when present. If the sibling skill or its Python is unavailable, the built-in `local_transcribe.py` fallback uses an installed `faster-whisper` package when available. It defaults to the cached model under `/workspace/.cache/whisper` in this sandbox, CPU `int8`, two threads, and offline cache-only mode; it does not install packages or download weights unless `--download-model` is supplied. If no cached model exists, it fails clearly rather than waiting on a model download. In this sandbox the fallback prefers a cached `base` model for speed; pass `--model small` when a more accurate second pass is worth the additional runtime. The public flow remains usable without `faster-whisper` when the sibling skill is installed.
+`transcribe` prefers the `video_transcription` skill: it locates `transcribe_video.py`, runs it and reshapes the JSON into a timecoded script. Lookup order is `VIDEO_TRANSCRIPTION_DIR`, then `skills/` and `skill/` next to this skill, then the same names above the working directory. Its `.venv` is used when present. If the sibling skill or its Python is unavailable, the built-in `local_transcribe.py` fallback uses an installed `faster-whisper` package when available. If no cached model exists, pass `--download-model` to fetch the required weights into `/workspace/.cache/whisper`; the default cache-only mode otherwise fails clearly. In this sandbox the fallback prefers a cached `base` model for speed; pass `--model small` when a more accurate second pass is worth the additional runtime. The public flow remains usable without `faster-whisper` when the sibling skill is installed.
 
 ### Finding the cuts: `audit`
 
@@ -295,7 +295,38 @@ Burn one short clip first, not the whole file. A 12 s clip takes about 20 s to b
 
 This check caught a real defect that no measurement flagged: on the 4K recording the subtitle landed on a Windows settings panel. The placement was correct — free space below the webcam inset — but the space was full of UI text, which is exactly the case the band edge density now detects.
 
+## Fixed editing strategy: zoom and screens
+
+Once the video is silence-cut, script-cleaned and subtitled, the visual pass is fixed, not ad-hoc. Two steps, one `enhance` plan, one encode.
+
+### Step 1 — Zoom on key phrases (~one every 30 s)
+
+- From the final script, mark the phrases that carry the argument: a key figure, a surprising statement, the end of a section. Not every word, not every sentence.
+- Target about one `punch` every 30 s (1-3 in a short clip). A passage that carries nothing worth showing gets no punch; skipping is allowed.
+- `punch`: zoom 1.2-1.3, center on the face, start on the word that introduces the phrase, 1.5-2.5 s long. It is a jump zoom by design — no smooth ramps.
+- A punch never runs over a screen or a split, which replace the picture: the zoom underneath would be invisible and wasteful.
+
+### Step 2 — Illustrate the talk with full-screen screens (the main strategy)
+
+The main strategy is to show what the speaker is saying, not just the speaker: for every idea worth showing, the footage is covered by a screen for 4-8 s while the audio keeps playing.
+
+- Content to screen: chart numbers → `screen-chart`; shares / split → `screen-donut`; key figures → `screen-stats`; a product or concept with a description and details → `screen-detail`; options compared → `screen-compare`; bullets / key points → `screen-list`; one example image, no data → `broll`.
+- Timing: each screen starts on the word that introduces the content and ends when the speaker moves on.
+- Pace: at most one screen every 20-30 s and never two in a row — the speaker stays visible between screens.
+- The bottom 13% stays empty for the burned subtitles (default `safe_bottom`).
+- No invented data: a number on a screen must be a number the video says. A chart meant to illustrate, not report, says so in `note`.
+- **Example images** are created with the agent's built-in image generation, saved next to the plan (`src` is a path relative to the plan) and used as `src` — not sourced or invented as evidence. Generate them **at the aspect ratio of the area they fill**: a full-frame image at the frame's own aspect (vertical cut: tall, horizontal cut: wide); a region image at that region's own aspect. A mismatched ratio makes `object-fit: cover` crop the subject, and a square image on a 9:16 frame shows a thin strip. Any generated image is an illustration: say so in `caption`/`tag`/`note`.
+- Example images never sit still: always a slow zoom. `broll` (Ken Burns, default 1.0 → 1.12) for a plain image, or `screen-detail` with `src` (slow push, 1.0 → 1.06) for a description + image. Keep the zoom small (≤ 1.15) and start it on the word that introduces the content.
+
+### Step 3 — Validate, review, encode
+
+- One `enhance` plan combining the punches and the screens; `--plan-only`; fix every `ERROR`; render; read every `WARNING`; extract frames at each event (`scripts/edit.py frame`) and look at them.
+- Burn the subtitles in the same encode (`--ass`) so they land on top of everything in one lossy generation.
+- One picture per moment: never both a screen and a zoom (or a split) on the same instant.
+
 ### Enhancement pass: information and images
+
+See "Fixed editing strategy: zoom and screens" above for the order of operations once the video is cut, script-cleaned and subtitled. This section is the reference for building the plan that pass produces.
 
 The third stage, after the cut (silence + script) and the subtitles. It adds what a viewer sees on top of the speaker, and every visual is an HTML/CSS/JS component rendered to a clip with alpha, so the same component works at any resolution and is reused across videos.
 
@@ -598,13 +629,13 @@ The following behavior was measured in an Ubuntu sandbox with Python 3.12.3, Nod
 - The chunked enhancement path was verified on a 24 s synthetic 480x854 source with callouts, a badge, ASS cues spanning a chunk boundary, and a split-panel layout. Full FFmpeg decode passed; container duration was 24.056 s against a 24.033 s source. Video starts at 0.023 s from MP4 frame timing; audio starts at zero and remains within the 0.25 s acceptance tolerance.
 - The chunked enhancement path was rerun with 8 s chunks, cache hits and full decode: both an overlays+subtitles render and a split-panel render completed in about 9-12 s. Video is stream-copied at concat; AAC audio is re-encoded once at concat to handle independent encoder priming. Check per-stream timing and full decode, not container duration alone.
 - `ffmpeg -nostats -loglevel error` limits progress output in constrained command runners. `ffmpeg_lib.run_ffmpeg` writes to a same-directory, uniquely named temporary whose filename still ends in the output container suffix, renaming it to the requested path only after FFmpeg returns zero and the temporary is nonempty. Failed renders do not publish a partial at the final path; an externally killed process may leave a `.part-...` file.
-- `python3` resolves to `/opt/aki-python/bin/python3` (Python 3.12.3) and imports `faster-whisper 1.2.1`; use that interpreter explicitly if another Python is placed first on `PATH`. The model cache is `/workspace/.cache/whisper`, with cached `base`/`small` snapshots; CPU `int8` works. The sibling `video_transcription` skill was absent. `transcribe.py` discovers these snapshots and runs cache-only by default; avoid downloading a new model during routine edits. A 20 s Spanish smoke test with cached `base` yielded 44 word timestamps in 5.25 s; previous 253 s and 212 s passes took 45.8 s and 40.9 s.
+- `python3` resolves to `/opt/aki-python/bin/python3` (Python 3.12.3) and imports `faster-whisper 1.2.1`; use that interpreter explicitly if another Python is placed first on `PATH`. The model cache is `/workspace/.cache/whisper`, with cached `base`/`small` snapshots; CPU `int8` works. The sibling `video_transcription` skill was absent. `transcribe.py` discovers these snapshots and runs cache-only by default; avoid re-downloading a model that is already cached. A 20 s Spanish smoke test with cached `base` yielded 44 word timestamps in 5.25 s; previous 253 s and 212 s passes took 45.8 s and 40.9 s.
 - Chrome is at `/opt/google/chrome/chrome`; set `VIDEO_EDITOR_BROWSER=/opt/google/chrome/chrome` if auto-discovery fails. Node modules are under `/opt/aki-node/node_modules`; reuse cached component MOVs and render changed events only. `/usr/bin/time` is absent; use Python `time.monotonic()` or shell timestamps for runtime measurements.
 - The connected Drive tool accepted text operations but had no binary MP4 upload operation in this session. Keep delivery separate from editing and only claim an upload after a supported binary upload succeeds.
 
 #### Fresh sandbox benchmark and API
 
-A separate fresh sandbox, limited to one CPU and 1 GiB RAM, had FFmpeg, Chrome and `faster-whisper 1.2.1` preinstalled, but no Whisper model in the project cache. A cached model from an earlier project is not part of the base image. The cache-only transcription failed immediately and correctly; without a pre-provisioned model or explicit permission to download one, speech recognition and content-accurate subtitles cannot run. Preinstalling a model in the image or provisioning a persistent cache is an option to evaluate, not an operation performed by this skill. Transcription speed and accuracy were not measured in this fresh sandbox.
+A separate fresh sandbox, limited to one CPU and 1 GiB RAM, had FFmpeg, Chrome and `faster-whisper 1.2.1` preinstalled, but no Whisper model in the project cache. A cached model from an earlier project is not part of the base image. The cache-only transcription failed immediately and correctly; without a pre-provisioned model, speech recognition and content-accurate subtitles cannot run. The only gap left was weights: `transcribe.py --download-model` fetches a model into `/workspace/.cache/whisper` (base is the fast default, `small` an optional second pass) and reruns the same flow. Preinstalling a model in the image or provisioning a persistent cache is also an option to evaluate, not an operation performed by this skill. Transcription speed and accuracy were not measured in this fresh sandbox.
 
 For a 252.889 s, 480x854 H.264/AAC source, `silence --chunked` took 68.89 s and produced 185.877 s across 40 chunks, versus 185.633 s planned. Full decoding succeeded; audio lasted 185.877 s and video 185.767 s (starting at 0.023 s). Check joins and synchronization before delivery: the 0.244 s container difference is close to the 0.25 s guard, and full decoding alone does not establish speech accuracy. The full 60 s source window with a single filter graph exhausted the 1 GiB sandbox and killed it (OOM, exit 137); retain bounded chunking even if a shorter single-pass test appears faster. A 60 s test using 20 s chunks took 18.60 s versus 17.84 s using 8 s chunks; larger chunks did not improve that measurement.
 
