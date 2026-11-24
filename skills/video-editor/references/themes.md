@@ -47,6 +47,22 @@ What to change per preset:
 - **Fixed dark** (`bold`, `cinematic`, `hud`, `mono`): the three colors only change accents, blocks, beams and lines; set `background` only when the brand needs a different base.
 - **Fixed light** (`editorial`, `pastel`, `brutalist`): pick medium or dark brand colors; very light ones are darkened toward the text automatically when used as text.
 
+## Brand palettes
+
+A preset's own colors are generic (`editorial` is teal and amber). For a channel or a company, paste the whole palette as the `theme` of `edit.js`; one edit restyles every screen, overlay and caption, and Studio hot-reloads it.
+
+**Anthropic / Claude** (warm cream, near-black text, clay orange):
+
+```js
+theme: {preset: "editorial", primary: "#C15F3C", secondary: "#8F3A24", tertiary: "#5B6472",
+  background: "#F0EEE6", background2: "#E7E3D7", card: "#FAF9F5", text: "#141413", muted: "#6B6259",
+  captionText: "#F5F1E8", captionHighlight: "#E8967A"},
+```
+
+Measured with `resolveTheme`: text 15.87:1 on the background, muted 4.65:1 on `background2`, `accentText` 3.64:1, `highlightText` (`#8F3A24`) 6.46:1, the `breaking` band label 4.47:1. `captionText` and `captionHighlight` color the captions, which sit on the video and not on the cream background.
+
+**When the user says "the colors are wrong" or "it does not read":** change only `theme` in `edit.js` (never the components of one project), run `validate-edit.cjs` (it warns when text on background is below 4.5:1) and reload Studio. Reusing a theme from an earlier `edit.js` means copying its whole `theme` object: `{preset: "editorial"}` alone brings back the preset's teal.
+
 ## Choosing a preset
 
 1. **Preference first.** Look for a saved theme preference (memory, earlier messages, a previous `edit.js` of the same channel). If there is one, use it without asking.

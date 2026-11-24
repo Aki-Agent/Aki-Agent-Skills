@@ -1,7 +1,6 @@
 import React from "react";
 import {registerRoot, Composition} from "remotion";
-import config from "./edit";
-import {EditedVideo, durationInFrames} from "./Video";
+import {EditedVideo, durationInFrames, config} from "./Video";
 import {Gallery, galleryDuration, horizontalGallery, ThemeSheet, ThemeReel, themeReelDuration} from "./components";
 
 const Root = () => <>

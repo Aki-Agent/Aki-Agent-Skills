@@ -156,3 +156,45 @@ test("review-script numbers kept words and hints repeats, truncations and hangin
   assert.deepEqual(result.hints.hanging.map((h) => h.at), [11]);
   assert.match(fs.readFileSync(review.replace(/\.json$/, ".txt"), "utf8"), /\[0000-0011\] +0\.00 \| La pregunta/);
 });
+
+test("cut.cjs removes a phrase with edges in silence and undoes it", () => {
+  const project = path.join(tmp, "cut-project"), src = path.join(project, "src"), pub = path.join(project, "public");
+  fs.mkdirSync(src, {recursive: true}); fs.mkdirSync(pub, {recursive: true});
+  makeAudio(path.join(pub, "source.wav"));
+  fs.writeFileSync(path.join(src, "edit.js"), "export default " + JSON.stringify({source: "source.wav", fps: 30, clips: [{start: 0, end: 4.9}]}) + ";\n");
+  const words = [["uno", 0.1, 0.9], ["dos", 1.9, 2.7], ["tres", 3.4, 4.2]].map(([text, a, b]) => ({text: " " + text, startMs: a * 1000, endMs: b * 1000}));
+  fs.writeFileSync(path.join(src, "captions.js"), "export default " + JSON.stringify(words) + ";\n");
+  const cut = (...args) => spawnSync(process.execPath, [path.join(SKILL, "scripts", "cut.cjs"), project, ...args], {encoding: "utf8"});
+  const run = cut("text:DOS");
+  assert.equal(run.status, 0, run.stderr);
+  const result = JSON.parse(run.stdout);
+  assert.equal(result.removedWords, 1);
+  const [a, b] = result.cuts[0].source;
+  assert.ok(a > 1.0 && a < 1.8 && b > 2.8 && b < 3.3, `edges in the silences: ${a}, ${b}`);
+  assert.ok(result.cuts[0].edgesBelowGate);
+  assert.equal(result.clips, 2);
+  assert.equal(cut("--undo").status, 0);
+  assert.match(fs.readFileSync(path.join(src, "edit.js"), "utf8"), /"end":4\.9\}\]/);
+  // A source cut, then keep: gives the word back and merges the clips again.
+  assert.equal(JSON.parse(cut("source:1.0-3.0").stdout).removedWords, 1);
+  const kept = JSON.parse(cut("keep:1.0-3.0").stdout);
+  assert.deepEqual(kept.restoredWords, ["dos"]);
+  assert.equal(kept.clips, 1);
+});
+
+test("captions.cjs replaces a window with medium words, fixes names and undoes it", () => {
+  const project = path.join(tmp, "captions-project"), src = path.join(project, "src");
+  fs.mkdirSync(src, {recursive: true});
+  const caps = [["Hola", 0, 0.5], ["Anthropiq", 0.5, 1.2], ["duro", 1.3, 3.2], ["fin", 3.4, 3.8]].map(([text, a, b]) => ({text: " " + text, startMs: a * 1000, endMs: b * 1000}));
+  fs.writeFileSync(path.join(src, "captions.js"), "export default " + JSON.stringify(caps) + ";\n");
+  const medium = path.join(tmp, "medium-2.5-3.3.json");
+  fs.writeFileSync(medium, JSON.stringify({clip: "2.5,3.3", segments: [{words: [["Pero", 2.5, 2.7], ["es", 2.7, 2.8], ["duro...", 2.8, 3.2]].map(([word, start, end]) => ({word: " " + word, start, end, probability: 0.9}))}]}));
+  const run = (...args) => spawnSync(process.execPath, [path.join(SKILL, "scripts", "captions.cjs"), project, ...args], {encoding: "utf8"});
+  const result = run(`--from=${medium}`, "--replace=Anthropiq=Anthropic");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).windows[0].removed, "duro"); // merged word (1.9 s) touching the window
+  const text = () => JSON.parse(fs.readFileSync(path.join(src, "captions.js"), "utf8").replace(/^export default /, "").replace(/;\s*$/, "")).map((c) => c.text.trim()).join(" ");
+  assert.equal(text(), "Hola Anthropic Pero es duro fin");
+  assert.equal(run("--undo").status, 0);
+  assert.equal(text(), "Hola Anthropiq duro fin");
+});

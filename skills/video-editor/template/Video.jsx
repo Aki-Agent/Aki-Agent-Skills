@@ -2,13 +2,20 @@ import React from "react";
 import {AbsoluteFill, Sequence, Easing, interpolate, spring, useCurrentFrame, useVideoConfig, staticFile, getInputProps, getRemotionEnvironment, delayRender, continueRender, cancelRender} from "remotion";
 import {Video} from "@remotion/media";
 import {createTikTokStyleCaptions} from "@remotion/captions";
-import config from "./edit";
+import editConfig from "./edit";
 import allCaptions from "./captions";
 import {Overlay, Screen, CaptionZone} from "./components";
 import {toFrame, buildClips, durationInFrames, frameToSource, keptCaptions, limitPageWords, resolveItems} from "./timeline.mjs";
 import {resolveTheme} from "./themes.mjs";
 
 export {durationInFrames};
+
+// Render overrides (--props), used by scripts/export.cjs: {"fps":30} renders at another frame rate (every
+// frame range is built from config.fps); {"source":"render.mp4"} plays another file; {"flat":true} means that
+// file is the kept clips already joined at this fps, so each clip starts at its output frame.
+const renderProps = getInputProps();
+export const config = {...editConfig, ...(renderProps.fps ? {fps:Number(renderProps.fps)} : {}),
+  ...(renderProps.source ? {source:renderProps.source} : {}), ...(renderProps.flat ? {flat:true} : {})};
 
 const vertical = config.height > config.width;
 const clips = buildClips(config);
@@ -140,7 +147,7 @@ export const EditedVideo = () => {
       <AbsoluteFill style={{transform:`scale(${zoom.scale * settle})`, transformOrigin:zoom.origin}}>
         {/* Premounting loads each clip's player 1 s before its cut; otherwise Studio pauses playback at every join while it buffers. */}
         {clips.map((clip, i) => <Sequence key={i} name={`Clip ${i + 1}`} from={clip.from} durationInFrames={clip.length} premountFor={Math.round(fps)}>
-          <Clip index={i} start={clip.srcFrom} length={clip.length} />
+          <Clip index={i} start={config.flat ? clip.from : clip.srcFrom} length={clip.length} />
         </Sequence>)}
       </AbsoluteFill>
       <CaptionLayer />

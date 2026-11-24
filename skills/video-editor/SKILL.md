@@ -7,6 +7,81 @@ description: Edit local videos with Remotion Studio in the agent harness you are
 
 Run locally, in the harness you are working in. Keep the video project in the agent workspace, outside this skill and other repositories. Keep the original media unchanged. Do not commit generated videos, transcripts, or project data. Do not commit or push skill changes unless the user asks. Measured case notes behind every default are in [references/lessons.md](references/lessons.md).
 
+## Fast path (default)
+
+Most of an edit's time used to go into the agent chaining steps by hand and writing one-off scan, map and fix scripts. Do not write such scripts: these two commands cover the mechanical work, and the agent only makes the editorial decisions.
+
+1. **One command to a cut project**, in the background:
+
+   ```powershell
+   node <SKILL_DIR>/scripts/auto-edit.cjs "<VIDEO>" "<WORK_DIR>" --python="<VENV>/Scripts/python.exe" --cache-dir="<HF_CACHE>" [--deps=<DIR with node_modules>]
+   ```
+
+   It transcribes while it creates the project and proxy (the two slowest steps, in parallel), plans silences, writes clips and captions, removes noise-only wordless clips and likely noises whose edges are below −40 dB, writes `review.txt`, validates, and prints a summary (`auto-edit.json`). Voiced wordless clips are kept and listed in `voicedWordlessClips`. Measured on a 10-minute, 2160×3840, 60 fps talking head: 547.7 s with no agent work in between (transcribe 499.6 s in parallel with project + proxy 477.2 s, silences 45.1 s, noises 1.8 s, review 0.4 s, validation 0.8 s); 601.1 → 247.6 s, and both bursts of the known throat clearing were removed automatically. The proxy encode from 4K is now the cost to beat after transcription.
+2. **Open Studio now** (see "Create and open the project") and keep it open; every later step hot-reloads.
+3. **One read of `review.txt`, one cut call.** Decide every script cut with [references/script-review.md](references/script-review.md) and apply them all together:
+
+   ```powershell
+   node <SKILL_DIR>/scripts/cut.cjs "<WORK_DIR>/project" words:812-830 words:1204-1210 "text:\"o sea lo que\""
+   ```
+
+   Re-transcribe at `medium` (`locate.cjs source:<t> --medium`, see "Fixing what the user points out") only the `voicedWordlessClips` and words you truly doubt; nothing else. On the test video, one call applied 6 script cuts and 3 clip cuts (247.6 → 217.3 s, 88 words, every join −68 to −76 dB). When `small` mistimed a stumble, a `words:` edge can land inside the good take (`--dry-run` shows it); then remove the whole clip with `source:` and the clip's own edges.
+4. **Theme, screens and zooms** in `src/edit.js`, anchored to words or source time so later cuts never need remapping. Edit only the `theme`, `zooms`, `screens` and `overlays` keys; `cut.cjs` rewrites `clips`. Set the whole brand palette as `theme` first (for Anthropic or Claude topics, the one in [Brand palettes](references/themes.md#brand-palettes)); a bare `{preset: "editorial"}` brings the preset's teal and amber.
+5. `validate-edit.cjs`, reload Studio, report. Render only after approval, with `scripts/export.cjs` (1080p 30 fps by default; see "Render and verify").
+
+## Fixing what the user points out (surgical, no new pipeline)
+
+Every request after the preview is **locate → one dry run → one cut call → captions → reload**. Never re-run `auto-edit.cjs`, never write scan, map or fix scripts, and never guess times from `review.txt` alone. Measured on the 10-minute test video, four requests (a repeated start at 0:41, a throat clearing after a phrase, "como se… como se estaba", "pero es duro" said twice): about 10 `locate` calls of 8–11 s each with `medium`, one `cut.cjs --dry-run` and one `captions.cjs --dry-run` (215.7 → 212.8 s, every edge −55 to −76 dB).
+
+1. **Locate each request** with what the user gave (Studio time or words):
+
+   ```powershell
+   node <SKILL_DIR>/scripts/locate.cjs "<WORK_DIR>/project" output:0:41 --medium
+   node <SKILL_DIR>/scripts/locate.cjs "<WORK_DIR>/project" "text:\"agencias gubernamentales selectas\""
+   ```
+
+   It prints the words around that point with source and Studio time and `kept` / `cut` / `part` (`part` = clipped by an earlier cut), the kept clips plus one on each side (wordless clips flagged), and with `--medium` the words `medium` hears in that window (cached in `WORK_DIR/locate/`; `--python`, `--cache-dir` and `--language` come from `auto-edit.json`).
+2. **Repetitions hide in the transcript.** `small` usually writes a repeated start once ("como es" for "como esto es… como es"), or stretches one word over both takes (`locate` flags words over 1.2 s). `medium` over 5–8 s can merge them too. Then narrow the window to one clip, `source:<clip middle> --window=<clip length + 0.2>`: on single clips `medium` separated every take of the test video.
+3. **Pick the spec** from what `locate` shows:
+
+   | Case | What `locate` shows | Spec |
+   |---|---|---|
+   | repeated start, the bad take is its own clip | that clip holds only the first take | `source:<clip start>-<clip end>` |
+   | bad take at the end of a clip with good words | `medium` times of the take | `source:<end of last good word>-<clip end>` |
+   | noise or throat clearing after a phrase | the next clip is flagged "(no words…)" | `source:<that clip>` |
+   | the good take starts with a word marked `part` | a word clipped by an earlier cut | `keep:<word start>-<clip start>` |
+   | a phrase transcribed once and correctly | its word indices | `words:A-B` or `"text:\"…\""` (`@2` for the second) |
+   | "cut 1:23 to 1:30" | — | `output:1:23-1:30` |
+
+   `source:`, `output:` and `keep:` edges move to the quietest 20 ms within ±80 ms (`--exact` keeps them); word edges go to the quietest 20 ms between the neighboring words. `keep:` is applied before the cuts.
+4. **All specs in one dry run, then the same call without `--dry-run`:** `node <SKILL_DIR>/scripts/cut.cjs "<WORK_DIR>/project" <spec>... --dry-run`. Check `removedWords`, `restoredWords` and that no edge warning is printed (above −40 dB).
+5. **Captions follow what is heard.** Words of removed takes drop automatically. Words `small` never transcribed (often the kept take of a repetition) are missing, so replace that window with the `medium` words; pick a window that ends in a pause. Fix names in the same call:
+
+   ```powershell
+   node <SKILL_DIR>/scripts/captions.cjs "<WORK_DIR>/project" --from="<WORK_DIR>/locate/medium-77-83.json" --replace=Anthropiq=Anthropic --dry-run
+   ```
+
+   Word indices change after `--from`: locate again instead of reusing `review.txt` indices.
+6. Reload Studio and report each fix with its Studio time. `cut.cjs --undo` and `captions.cjs --undo` revert the last run of each (history in `src/edit-history/`). `cut.cjs` writes `edit.js` back as JSON, so comments in it are lost.
+
+The four test requests resolved to (dry run with measured edges; confirm by ear in Studio):
+
+| Request | Found with `locate` | Specs |
+|---|---|---|
+| 0:41 "como esto es… como es técnicamente" | the clip `small` called "como es" is "como esto es" in `medium` | `source:72.525-73.593`, captions `--from` the 77–83 s window |
+| throat clearing after "selectas" | wordless clip after a 20.9 s pause | `source:396.89-397.354` |
+| "como se… como se estaba especulando" | single-clip windows: first take ends its clip; second "como" starts 0.3 s before its clip | `source:579.62-580.04 keep:580.95-581.25`, captions `--from` 580.9–582.1 |
+| "pero es duro" twice | first take is two clips ("pero es duro" + "pensar que viene"); "Pero" of the second is `part` | `source:587.92-589.66 keep:589.9-590.06`, captions `--from` 589.9–591.9 |
+
+**Other adjustments:**
+
+| User says | Do |
+|---|---|
+| "move/shorten this screen" | edit that item in `edit.js`; anchors keep it in place after cuts |
+| "the colors are wrong", "the text does not read" | change only `theme` in `edit.js` (whole palette, see [Brand palettes](references/themes.md#brand-palettes)), `validate-edit.cjs`, reload |
+
+A project keeps the copy of `src/components.jsx` it was created with. After a template fix, copy `<SKILL_DIR>/template/components.jsx` over it only when the project copy was not customized (`fc` against the template shows no other change).
+
 ## Pipeline
 
 | Step | Command | Measured on a 42.4 s, 2160×3840, 60 fps talking head |
@@ -18,9 +93,9 @@ Run locally, in the harness you are working in. Keep the video project in the ag
 | 5. Validate | `node scripts/validate-edit.cjs` | under 1 s |
 | 6. Review in Studio | headed browser tab | proxy only (3.8 MB instead of 463 MB); preview clock ran at real time (0.99–1.00×) |
 | — Stills before approval | `npx.cmd remotion still --scale=0.25` | about 11 s per frame from the 4K original |
-| 7. Render after approval | `npx.cmd remotion render` | 61 frames at `--scale=0.25`: 21.6 s from the 720 px proxy, 56.8 s from the original |
+| 7. Render after approval | `node scripts/export.cjs` (see "Render and verify") | 61 frames at `--scale=0.25`: 21.6 s from the 720 px proxy, 56.8 s from the original; a 10-minute source at 1080p 30 fps: about 3 min + 845 s |
 
-Requirements: Node.js, npx, FFmpeg 7+ and ffprobe on PATH; Python with `faster-whisper` for step 1. Tests: `node --test skills/video-editor/tests/video-editor.test.cjs` (11 tests, 5.1–5.5 s on an idle machine, synthetic audio). Every still or render copies `public/` into the bundle (475.7 MB on the sample), so keep unused media out of `public/`.
+Requirements: Node.js, npx, FFmpeg 7+ and ffprobe on PATH; Python with `faster-whisper` for step 1. Tests: `node --test skills/video-editor/tests/video-editor.test.cjs` (13 tests, synthetic audio; 10.9 s here). Every still or render copies `public/` into the bundle (475.7 MB on the sample), so keep unused media out of `public/`.
 
 ## Always show the result in Remotion Studio
 
@@ -284,13 +359,33 @@ To add a component, write it in `components.jsx`, register it in `OVERLAYS` or `
 
 Only render when the edit is ready **and the user has approved the Studio preview**. Use the output location the user requests.
 
+**Export with one command (default 1080p, 30 fps):**
+
 ```powershell
-npx.cmd remotion render src/index.jsx EditedVideo "<OUTPUT.mp4>" --concurrency=4
-ffprobe -v error -show_entries format=duration:stream=codec_type,width,height -of json "<OUTPUT.mp4>"
+node <SKILL_DIR>/scripts/export.cjs "<WORK_DIR>/project" "<OUTPUT.mp4>"
+node <SKILL_DIR>/scripts/export.cjs "<WORK_DIR>/project" "<OUTPUT.mp4>" --quality=1440p --fps=60   # only if the user asks
+```
+
+Run it in the background and read the `Rendered N/M, time remaining` lines from its stderr to report real progress. It prints a JSON summary (`ok`, size, fps, duration against the expected one, timings). What it does and why each step is there:
+
+1. **Flat render source, once.** Rendering straight from a 4K 60 fps original is slow because every Chrome tab decodes 4K frames: 300 output frames at 1080p 30 fps took 97.9 s from the original and 26.2 s from a light proxy. The script encodes with FFmpeg only the kept clips (213 of 601 s on the test video), already at the output size and fps, in parallel and with D3D11 hardware decoding (falls back to the CPU), joins them, and cuts the audio from the original in one sample-accurate pass. Remotion then reads that file with `--props={"fps":30,"source":"render.mp4","flat":true}` (the template's render overrides). The file is cached in `WORK_DIR/render/<size>@<fps>/` and reused while clips, source, size and fps stay the same; screens, zooms, captions and theme can change without rebuilding it.
+2. **No multi-GB copy.** `--public-dir` points to that folder (the render file plus fonts and images of `public/`), so the original is not copied into the bundle.
+3. **Render settings.** `--scale` from the short side (0.5 for 1080p from a 2160 px edit; the layout is identical because every size is relative to the composition), `--concurrency` = CPU threads − 2, `--crf=18`, `--x264-preset=veryfast`, AAC 192 kb/s.
+
+| Quality | Use | Cost |
+|---|---|---|
+| 1080p, 30 fps | default for YouTube, Shorts, Reels, TikTok | test video (212.9 s, 6388 frames, 16 threads, no GPU): flat source about 3 min once, render 845 s (7.6 frames/s), 235 MB; straight from the 4K original the same render extrapolates to about 35 min |
+| 1440p (`--quality=1440p`, "2K") | only on request | about 1.8× the pixels of 1080p: tell the user it is slower |
+| 2160p (`--quality=2160p`, "4K") | only on request | 4× the pixels of 1080p; the flat source is 4K too |
+| 60 fps (`--fps=60`, never above the edit's fps) | only on request | twice the frames: about twice the time |
+
+Hardware encoders (NVENC, QSV, AMF) are not used: on the test machine NVENC needed a newer driver and QSV failed to start, and Remotion encodes with x264 anyway. `--frames=A-B` renders a part for a quick check.
+
+```powershell
 ffmpeg -v error -i "<OUTPUT.mp4>" -f null -
 ```
 
-- Renders use the original source. `--props="{\"proxy\":true}"` renders from the proxy for a fast low-resolution preview; add `--scale=0.5` or similar to shrink the frame.
+- `--props="{\"proxy\":true}"` with `npx.cmd remotion render` still renders a fast low-resolution preview from the proxy.
 - If downloading Chrome Headless Shell fails with `unable to verify the first certificate`, do not disable TLS. Reuse an installed one: `--browser-executable="<PROJECT_OR_SIBLING>/node_modules/.remotion/chrome-headless-shell/<version>/win64/chrome-headless-shell-win64/chrome-headless-shell.exe"`. With shared dependencies, one browser download serves every project.
 - Confirm audio and video streams, the expected duration and a full decode. Visually inspect captions, overlays, zooms and each cut, and listen to the joins: decoding alone cannot validate speech. Report unverified checks; do not call an incomplete render successful.
 - Full-quality 4K renders take many minutes (see lessons); run them only after approval, in a visible console, and stop duplicate renders that compete for CPU.

@@ -372,16 +372,18 @@ const KineticScreen = ({text="", highlight=[], theme, duration}) => {
   </div></Backdrop>;
 };
 
-const BreakingScreen = ({label="Breaking", title, text, ticker, color="#e11d2e", theme}) => {
+// Uses the theme background and text (a fixed dark red left dark text unreadable on light presets,
+// 1.16:1 on editorial); the band is the theme primary unless the screen sets `color`.
+const BreakingScreen = ({label="Breaking", title, text, ticker, color, theme}) => {
   const frame=useCurrentFrame(); const {fps, width}=useVideoConfig(); const u=useUnit();
-  const band=ease(frame,fps);
-  return <Backdrop theme={{...theme, effect:"none"}} style={{background:"linear-gradient(160deg, #14060a 0%, #3a0a12 100%)"}}>
-    <div style={{background:color, color:"#fff", fontWeight:900, fontSize:u*5.4, textTransform:"uppercase", letterSpacing:u*0.4, padding:`${u*1.6}px ${u*4}px`, transform:`rotate(-3deg) scaleX(${band})`, marginBottom:u*5, display:"flex", alignItems:"center", gap:u*1.6}}>
-      <Icon name="alert" size={u*6} color="#fff" stroke={2.6}/>{label}
+  const band=ease(frame,fps), accent=color ?? theme.primary, onAccent=onColor(accent);
+  return <Backdrop theme={{...theme, effect:"none"}}>
+    <div style={{background:accent, color:onAccent, fontWeight:900, fontSize:u*5.4, textTransform:"uppercase", letterSpacing:u*0.4, padding:`${u*1.6}px ${u*4}px`, transform:`rotate(-3deg) scaleX(${band})`, marginBottom:u*5, display:"flex", alignItems:"center", gap:u*1.6}}>
+      <Icon name="alert" size={u*6} color={onAccent} stroke={2.6}/>{label}
     </div>
-    {title && <div style={{...rise(frame,fps,u,0.25), fontWeight:900, fontSize:fitSize(title,u*8,width,0.66), lineHeight:1.1}}>{title}</div>}
-    {text && <div style={{...rise(frame,fps,u,0.45), color:"#f3c9cf", fontSize:u*4.4, marginTop:u*3}}>{text}</div>}
-    {ticker && <div style={{position:"absolute", left:0, right:0, bottom:"6%", height:u*7, background:"rgba(0,0,0,.6)", overflow:"hidden", display:"flex", alignItems:"center"}}>
+    {title && <div style={{...rise(frame,fps,u,0.25), fontFamily:theme.headingFont, fontWeight:900, fontSize:fitSize(title,u*8,width,0.66), lineHeight:1.1}}>{title}</div>}
+    {text && <div style={{...rise(frame,fps,u,0.45), color:theme.muted, fontSize:u*4.4, marginTop:u*3}}>{text}</div>}
+    {ticker && <div style={{position:"absolute", left:0, right:0, bottom:"6%", height:u*7, background:theme.text, color:theme.background, overflow:"hidden", display:"flex", alignItems:"center"}}>
       <Marquee text={ticker} font={`700 ${u*3.8}px ${theme.font}`} speed={u*30} startX={u*10} frame={frame} fps={fps}/>
     </div>}
   </Backdrop>;
