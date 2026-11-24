@@ -493,7 +493,7 @@ Ends at 203 px on vertical.
 
 ## Screens
 
-A screen **replaces the footage** for a few seconds while the audio keeps playing: the viewer stops seeing the speaker and sees a chart, a description, a spec sheet, a table or a list. Use them to vary the picture, not on top of it. See the "Fixed editing strategy: zoom and screens" section in SKILL.md for when and how many to use (one every 20-30 s, starting on the word that introduces the content). Each screen lays itself out for the orientation of the frame, so the same event works on a vertical and a horizontal video:
+A screen **replaces the footage** for a few seconds while the audio keeps playing: the viewer stops seeing the speaker and sees a chart, a description, a spec sheet, a table or a list. Use them to vary the picture, not on top of it. See the optional visual suggestion guidelines in SKILL.md; the reviewed SFVE script determines which screens are actually used. Each screen lays itself out for the orientation of the frame, so the same event works on a vertical and a horizontal video:
 
 | Screen | Vertical frame | Horizontal frame |
 |---|---|---|

@@ -399,7 +399,7 @@ def check_overlays(events: list[dict], video: str, ass: Path | None, width: int,
 
 def build_graph(
     events: list[dict], width: int, height: int, ass: Path | None,
-    *, source_label: str = "[0:v]",
+    *, source_label: str = "[0:v]", fps: float = 30.0,
 ) -> tuple[list[str], str]:
     """Inputs and filter_complex: layouts first, then overlays by layer, subtitles last."""
     inputs: list[str] = []
@@ -422,15 +422,18 @@ def build_graph(
         parts.append(f"{cur}split=2{main}{side}")
         cut = f"{side}trim=start={s:.3f}:end={t:.3f},setpts=PTS-STARTPTS"
         if e["type"] == "punch":
-            # A constant crop scaled back to the frame: a jump zoom. A smooth ramp would need a
-            # per-frame crop size, and `crop` evaluates its size once per stream.
+            # Smoothstep ramps are evaluated on the original event clock, including across chunks.
             zoom = e["zoom"]
             cx, cy = e.get("center") or (0.5, 0.4)
-            cw, ch = _even(width / zoom), _even(height / zoom)
-            x = int(_clamp(cx * width - cw / 2, 0, width - cw))
-            y = int(_clamp(cy * height - ch / 2, 0, height - ch))
-            parts.append(f"{cut},crop={cw}:{ch}:{x}:{y},scale={width}:{height}:flags=lanczos,"
-                         f"setsar=1,setpts=PTS+{s:.3f}/TB{piece}")
+            duration = e.get("_zoom_duration", t - s)
+            offset = e.get("_zoom_offset", 0.0)
+            ramp = min(0.3, duration / 2)
+            progress = f"clip(min((on/{fps:.6f}+{offset:.6f})/{ramp:.6f},({duration:.6f}-on/{fps:.6f}-{offset:.6f})/{ramp:.6f}),0,1)"
+            z = f"1+{zoom - 1:.6f}*({progress})*({progress})*(3-2*({progress}))"
+            x = f"clip(iw*{cx:.6f}-iw/zoom/2,0,iw-iw/zoom)"
+            y = f"clip(ih*{cy:.6f}-ih/zoom/2,0,ih-ih/zoom)"
+            parts.append(f"{cut},zoompan=z='{z}':x='{x}':y='{y}':d=1:"
+                         f"s={width}x{height}:fps={fps:.6f},setsar=1,setpts=PTS+{s:.3f}/TB{piece}")
             parts.append(f"{main}{piece}overlay=0:0:eof_action=pass:enable='{window(e)}'{out}")
             cur = out
             continue
@@ -551,7 +554,10 @@ def _chunk_events(events: list[dict], start: float, end: float) -> list[dict]:
         clipped = dict(event)
         clipped["start"] = round(overlap_start - start, 6)
         clipped["end"] = round(overlap_end - start, 6)
-        if event["type"] != "punch":
+        if event["type"] == "punch":
+            clipped["_zoom_offset"] = overlap_start - absolute_start
+            clipped["_zoom_duration"] = absolute_end - absolute_start
+        else:
             clipped["_render_trim_start"] = max(0.0, overlap_start - absolute_start)
             clipped["_render_trim_end"] = min(absolute_end - absolute_start, overlap_end - absolute_start)
         selected.append(clipped)
@@ -607,7 +613,7 @@ def _encode_enhanced_chunks(
                 event["render"] = str(panel_render)
             local_ass = _slice_ass(ass, start, end, work / f"subs-{index:04d}.ass")
             overlay_inputs, graph = build_graph(
-                local_events, width, height, local_ass, source_label="[vsrc]"
+                local_events, width, height, local_ass, source_label="[vsrc]", fps=fps
             )
             local_graph = work / f"filter-{index:04d}.txt"
             local_graph.write_text(
@@ -724,7 +730,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  WARNING: event {item['event']} ({item['type']} at {format_time(item['start'])}): "
                       + "; ".join(item["warnings"]))
 
-        inputs, graph = build_graph(events, width, height, ass)
+        inputs, graph = build_graph(events, width, height, ass, fps=fps)
         out.parent.mkdir(parents=True, exist_ok=True)
         graph_file = renders / "filter_complex.txt"
         graph_file.parent.mkdir(parents=True, exist_ok=True)

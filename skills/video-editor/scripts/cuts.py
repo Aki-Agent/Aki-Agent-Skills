@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from ffmpeg_lib import (
-    ToolError, ensure_output_dir, frame_rate_of, output_report,
+    ToolError, duration_of, ensure_output_dir, frame_rate_of, output_report,
     probe, run_ffmpeg, stream_of,
 )
 
@@ -174,6 +174,7 @@ def rebuild(
     started = time.time() if started is None else started
     expected = round(sum(float(item["end"]) - float(item["start"]) for item in keep_ranges), 3)
     chunk_count = 0
+    encoded_seconds = None
 
     if not chunked:
         script = output.with_suffix(".filtergraph.txt")
@@ -208,6 +209,7 @@ def rebuild(
         with tempfile.TemporaryDirectory(prefix=f".{output.stem}.chunks-", dir=output.parent) as temp:
             work = Path(temp)
             paths: list[Path] = []
+            encoded_seconds = 0.0
             for index, item in enumerate(chunks):
                 chunk = work / f"{index:04d}.mp4"
                 duration = float(item["end"]) - float(item["start"])
@@ -229,6 +231,17 @@ def rebuild(
                             "-ar", str(sample_rate), "-ac", str(channels)]
                 cmd.append(str(chunk))
                 run_ffmpeg(cmd, timeout=chunk_timeout)
+                chunk_duration = duration_of(probe(chunk))
+                # Each independently encoded MP4 can extend by a video frame and
+                # AAC packet padding. Check each one before adding its real
+                # container duration to the expected concat timeline.
+                tolerance = 0.1 + 1 / fps + (1024 / sample_rate if has_audio else 0)
+                if abs(chunk_duration - duration) > tolerance:
+                    raise ToolError(
+                        f"Chunk {index} duration {chunk_duration:.3f}s differs from "
+                        f"requested {duration:.3f}s by more than {tolerance:.3f}s."
+                    )
+                encoded_seconds += chunk_duration
                 paths.append(chunk)
 
             manifest = work / "concat.txt"
@@ -259,13 +272,28 @@ def rebuild(
         "chunk_seconds": chunk_seconds if chunked else None,
         "chunk_timeout_seconds": chunk_timeout if chunked else None,
         "chunk_count": chunk_count,
+        "encoded_chunks_seconds": round(encoded_seconds, 3) if encoded_seconds is not None else None,
     })
     if report.get("probe_error"):
         raise ToolError(f"Completed output could not be probed: {report['probe_error']}")
     actual = report.get("duration_seconds")
-    if actual is not None and abs(actual - expected) > 0.25:
+    timeline = encoded_seconds if encoded_seconds is not None else expected
+    if actual is not None and abs(actual - timeline) > 0.25:
         raise ToolError(
-            f"Output duration {actual:.3f}s differs from expected {expected:.3f}s "
+            f"Output duration {actual:.3f}s differs from expected timeline {timeline:.3f}s "
             f"by more than 0.25s; check the cut ranges and A/V timestamps."
         )
+    if chunked and has_audio:
+        info = probe(output)
+        video, audio = stream_of(info, "video"), stream_of(info, "audio")
+        if not video or not audio:
+            raise ToolError("Completed output is missing a video or audio stream.")
+        try:
+            video_end = float(video["start_time"]) + float(video["duration"])
+            audio_end = float(audio["start_time"]) + float(audio["duration"])
+        except (KeyError, TypeError, ValueError):
+            raise ToolError("Completed output is missing stream timing information.")
+        if abs(video_end - audio_end) > 0.25:
+            raise ToolError(f"Output audio/video endpoints differ by {abs(video_end - audio_end):.3f}s.")
+        report["av_endpoint_difference_seconds"] = round(abs(video_end - audio_end), 3)
     return report

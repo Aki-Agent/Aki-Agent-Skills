@@ -7,7 +7,48 @@ description: Edits video files locally with FFmpeg — inspect orientation, leng
 
 > **Status: experimental.** Under active development. The pipeline is tested end-to-end on real recordings, but thresholds and heuristics still change between runs. Verify the output before delivering it.
 
-Local, deterministic video editing with FFmpeg. Nothing is uploaded: the scripts call `ffmpeg` and `ffprobe` on the user's files.
+Local, deterministic video editing with FFmpeg. The scripts call `ffmpeg` and `ffprobe` on the user's files.
+
+## Default workflow: Script First Video Edition (SFVE)
+
+For a full edit, use two phases separated by the user's review. Work in an Aki sandbox created by its API. Use a backend-provisioned persistent project when available: the tight video, transcript, baseline and manifest must survive until the reviewed script returns. For an ephemeral sandbox, export and preserve the entire project before it expires. Do not invent a persistent project ID.
+
+1. **Prepare.** Run metadata analysis, cut silence and transcribe the tight video. Do not clean spoken content or render visual effects yet. The script and its word timestamps refer to the silence-cut video, not the original.
+2. **Propose and hand off.** Inspect the contact sheet and transcript. Add contextual edit suggestions as separate bracket lines to the draft; these are suggestions, not decisions. Zooms are prefilled as a starting point. Freeze the draft and deliver the editable script to the user. Stop and wait for the user to return it; do not infer acceptance from silence. The user may delete speech or edit/remove the bracket lines.
+3. **Apply the returned script.** Diff it against the frozen baseline. Cut only deleted words and apply only bracket instructions still present. Do not independently add cuts, effects, images or subtitles after review. The returned script is the user's approval of the remaining instructions. Reconstruct the timeline after cuts; verify the output and report any error rather than delivering a rejected file as successful.
+
+```bash
+# Run inside the sandbox; choose a new project path.
+python3 scripts/sfve.py prepare INPUT.mp4 --project /workspace/.cache/sfve/project \
+  --language es --download-model
+
+# Read guion.sfve.md and add context-specific bracket suggestions without changing its speech.
+python3 scripts/sfve.py freeze --project /workspace/.cache/sfve/project
+# Deliver guion.sfve.md and wait for the user's edited copy.
+
+# Validate and inspect sfve.diff.json before encoding.
+python3 scripts/sfve.py apply --project /workspace/.cache/sfve/project \
+  --script REVIEWED.md --output /workspace/output/edited.mp4 --plan-only
+python3 scripts/sfve.py apply --project /workspace/.cache/sfve/project \
+  --script REVIEWED.md --output /workspace/output/edited.mp4
+```
+
+Each speech line has an immutable segment ID and start time. The user can delete a complete line or words within it, and can edit the following bracket lines. Place bracket lines immediately below their speech line without a blank line; when deleting a whole block, remove its bracket lines too:
+
+| Instruction | Result |
+|---|---|
+| `[zoom 2s]` | A 2-second punch-in |
+| `[pantalla 6s: Title]` | A full-screen title |
+| `[overlay 3s: Text]` | A callout overlay |
+| `[imagen 5s: relative/path.jpg]` | A full-frame image with slow zoom |
+
+These keywords are part of the script format. For any other existing component, the agent can translate the user's request to a structured line such as `[efecto {"type":"counter","duration":3,"params":{"value":10}}]`; use the component catalog for available types and settings. The agent must preserve the user's selected content and settings. Resolve a requested image to a real local file before applying it; paths are relative to the returned script. If the user writes another instruction in natural language, translate it into a supported bracket instruction based on their request; do not silently ignore it or invent missing details.
+
+`sfve.diff.json` records deleted timed words, text corrections, bracket instructions before/after, cut ranges and remapped effects. One-for-one spelling corrections are recorded but do **not** change the recorded audio; inserted words or ambiguous replacements cannot be synthesized and are rejected. Deleted words that overlap retained word timestamps are rejected for review. IDs, timestamps, the baseline, transcript and tight video must not be altered; hashes detect changed project artifacts. Effects are anchored to the first retained word of their block. A returned script with no effects produces no effects; with no cuts it avoids the extra cut encode. This workflow does not add subtitles automatically.
+
+SFVE uses source chunks of at most 60 seconds for silence removal and reviewed speech cuts; visual composition retains its separate chunk settings. Actual chunks may be shorter at cut boundaries.
+
+The remaining sections document lower-level operations and optional visual suggestion guidelines. They do not authorize skipping the SFVE handoff or making edits the user did not select.
 
 ## Requirements
 
@@ -295,20 +336,20 @@ Burn one short clip first, not the whole file. A 12 s clip takes about 20 s to b
 
 This check caught a real defect that no measurement flagged: on the 4K recording the subtitle landed on a Windows settings panel. The placement was correct — free space below the webcam inset — but the space was full of UI text, which is exactly the case the band edge density now detects.
 
-## Fixed editing strategy: zoom and screens
+## Optional visual suggestion guidelines: zoom and screens
 
-Once the video is silence-cut, script-cleaned and subtitled, the visual pass is fixed, not ad-hoc. Two steps, one `enhance` plan, one encode.
+Use these guidelines only when proposing bracket instructions before SFVE review. The user chooses which suggestions remain; do not add them after review.
 
 ### Step 1 — Zoom on key phrases (~one every 30 s)
 
 - From the final script, mark the phrases that carry the argument: a key figure, a surprising statement, the end of a section. Not every word, not every sentence.
 - Target about one `punch` every 30 s (1-3 in a short clip). A passage that carries nothing worth showing gets no punch; skipping is allowed.
-- `punch`: zoom 1.2-1.3, center on the face, start on the word that introduces the phrase, 1.5-2.5 s long. It is a jump zoom by design — no smooth ramps.
+- `punch`: zoom 1.2-1.3, center on the face, start on the word that introduces the phrase, 1.5-2.5 s long. The scale eases in and out.
 - A punch never runs over a screen or a split, which replace the picture: the zoom underneath would be invisible and wasteful.
 
 ### Step 2 — Illustrate the talk with full-screen screens (the main strategy)
 
-The main strategy is to show what the speaker is saying, not just the speaker: for every idea worth showing, the footage is covered by a screen for 4-8 s while the audio keeps playing.
+When suggesting a screen, it may cover the footage for 4-8 s while the audio keeps playing. The user decides whether to keep it.
 
 - Content to screen: chart numbers → `screen-chart`; shares / split → `screen-donut`; key figures → `screen-stats`; a product or concept with a description and details → `screen-detail`; options compared → `screen-compare`; bullets / key points → `screen-list`; one example image, no data → `broll`.
 - Timing: each screen starts on the word that introduces the content and ends when the speaker moves on.
@@ -326,7 +367,7 @@ The main strategy is to show what the speaker is saying, not just the speaker: f
 
 ### Enhancement pass: information and images
 
-See "Fixed editing strategy: zoom and screens" above for the order of operations once the video is cut, script-cleaned and subtitled. This section is the reference for building the plan that pass produces.
+See "Default workflow: Script First Video Edition (SFVE)" for the required handoff. The following is a lower-level reference for user-selected effects.
 
 The third stage, after the cut (silence + script) and the subtitles. It adds what a viewer sees on top of the speaker, and every visual is an HTML/CSS/JS component rendered to a clip with alpha, so the same component works at any resolution and is reused across videos.
 
@@ -390,7 +431,7 @@ Use `--chunked --chunk-seconds 8 --chunk-timeout 30` when an execution host limi
 
 #### Layouts
 
-- **Punch-in is a jump zoom.** A constant crop scaled back to the frame, cut in and out on the word. A smooth ramp would need a per-frame crop size, and FFmpeg's `crop` evaluates its size once per stream, so it is not implemented. Measured on the test recording at `zoom 1.2, center [0.49, 0.37]`: the top of the head moves from 240 px to about 320 px and the face fills more of the frame.
+- **Punch-in eases in and out.** The scale follows a smoothstep ramp of up to 0.3 seconds at each end, shortened for events under 0.6 seconds. The zoom remains centered on the specified point and preserves its progress across enhancement chunks.
 - **Split crops the person, it does not shrink them.** On a vertical frame the person keeps full width and a half-height window starting at `person_y`; the panel takes the other half. `person_y` comes from where the head starts: on the test recording skin begins at row 240 px (0.19 of the height), so `0.17` keeps the head with some air above it. Measured on the result: the top half has no skin, the person starts at about 650 px.
 - **The panel is opaque from its first frame.** The person crop switches on a hard cut, so a panel that faded in would show the uncropped head behind it for the length of the fade. Only the panel content animates.
 - The horizontal split (person `left`/`right`, panel on the other side) is implemented with the same code path but has not been run on a real horizontal recording yet.
@@ -488,7 +529,7 @@ Limits of the check, stated as facts: it samples the footage before zooms, so an
 | Worked | Caching: the corrected run re-rendered 7 clips and reused 6; render 42.8 s, encode 21.4 s, total 69.8 s |
 | Did not | First-version cards sized for "readable", not for the free band: they covered the head. Size components against the measured free space, then let the check confirm |
 | Did not | An opaque full-frame b-roll is the slowest and heaviest clip to render; keep cutaways short (5-6 s) |
-| Open | Layout changes are hard cuts; there are no transitions, no smooth zoom ramps and no sound effects yet |
+| Open | Split layout changes are hard cuts; there are no layout transitions or sound effects yet |
 
 ### Low-resolution previews
 
@@ -652,12 +693,12 @@ The current `files/write` and `files/read` endpoints handle UTF-8 text of at mos
 - Verify the final path with `ffprobe`, compare expected and actual duration, and run a full decode such as `ffmpeg -v error -i OUTPUT -f null -` before delivery. A file's presence and nonzero size alone do not prove a complete MP4.
 - Missing `ffmpeg`/`ffprobe` produce an install hint, not a stack trace.
 - `concat --copy` and `audio --operation replace` copy streams; if the output looks broken, re-run without `--copy` or re-encode the source.
-- `silence` reports both the measured duration and the expected one, so a rebuild that dropped or duplicated a segment is visible instead of silent.
+- `silence` reports the measured duration and the ideal cut duration. In chunked mode it validates each encoded chunk against its requested range, checks the concatenated duration against the sum of the encoded chunks, and checks the audio/video endpoints. Frame and audio packet rounding can make the measured duration longer than the ideal sum.
 - The content guess in `analyze` can be wrong on unusual footage. It is a heuristic with the evidence attached, not a classification oracle.
 
 ## Not covered yet
 
-Kept out on purpose, to be added incrementally: sound effects and music ducking, transitions between layouts, smooth zoom ramps, speed ramps, and vertical/reframe conversion. Say so plainly if a user asks for one of them instead of improvising a half-working command.
+Kept out on purpose, to be added incrementally: sound effects and music ducking, transitions between layouts, speed ramps, and vertical/reframe conversion. Say so plainly if a user asks for one of them instead of improvising a half-working command.
 
 Overlays, punch-in zooms and split layouts **are** covered by `enhance`; the horizontal split is implemented but not yet run on a real horizontal recording.
 
