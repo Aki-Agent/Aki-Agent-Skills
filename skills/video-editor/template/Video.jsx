@@ -138,7 +138,8 @@ export const EditedVideo = () => {
   return <AbsoluteFill style={{backgroundColor:"#000"}}>
     <CaptionZone.Provider value={captionsMode}>
       <AbsoluteFill style={{transform:`scale(${zoom.scale * settle})`, transformOrigin:zoom.origin}}>
-        {clips.map((clip, i) => <Sequence key={i} name={`Clip ${i + 1}`} from={clip.from} durationInFrames={clip.length}>
+        {/* Premounting loads each clip's player 1 s before its cut; otherwise Studio pauses playback at every join while it buffers. */}
+        {clips.map((clip, i) => <Sequence key={i} name={`Clip ${i + 1}`} from={clip.from} durationInFrames={clip.length} premountFor={Math.round(fps)}>
           <Clip index={i} start={clip.srcFrom} length={clip.length} />
         </Sequence>)}
       </AbsoluteFill>

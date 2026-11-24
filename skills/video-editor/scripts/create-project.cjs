@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Create an isolated Remotion project from local media and optional word timestamps.
-// Usage: node create-project.cjs VIDEO PROJECT_DIR [TRANSCRIPT_JSON] [--proxy|--no-proxy] [--copy] [--deps=DIR] [--no-install] [--install-timeout=MIN]
+// Usage: node create-project.cjs VIDEO PROJECT_DIR [TRANSCRIPT_JSON] [--proxy|--no-proxy] [--proxy-size=PX] [--copy] [--deps=DIR] [--no-install] [--install-timeout=MIN]
 const fs = require("node:fs");
 const path = require("node:path");
 const {execFileSync, spawnSync} = require("node:child_process");
@@ -53,10 +53,11 @@ const ensureDependencies = (depsDir, install, minutes) => {
   return {status: installedWith ? "installed" : "reused", depsDir, installedWith, modules};
 };
 
-// Light preview copy for Studio: short side 720 px, 30 fps, a keyframe every second for fast seeking.
-const makeProxy = (source, output, width, height) => {
-  const scale = width >= height ? "scale=-2:720" : "scale=720:-2";
-  const run = spawnSync("ffmpeg", ["-v","error","-y","-i",source,"-vf",scale,"-r","30","-c:v","libx264","-preset","veryfast","-crf","23",
+// Light preview copy for Studio: short side `size` px (480 by default), 30 fps, a keyframe every second
+// for fast seeking, and `fastdecode` so the browser spends less time decoding. Audio stays at 128k.
+const makeProxy = (source, output, width, height, size) => {
+  const scale = width >= height ? `scale=-2:${size}` : `scale=${size}:-2`;
+  const run = spawnSync("ffmpeg", ["-v","error","-y","-i",source,"-vf",scale,"-r","30","-c:v","libx264","-preset","veryfast","-tune","fastdecode","-crf","28",
     "-g","30","-pix_fmt","yuv420p","-c:a","aac","-b:a","128k","-movflags","+faststart",output], {encoding:"utf8"});
   if (run.error || run.status !== 0) throw new Error("Proxy encoding failed: " + (run.stderr || run.error?.message));
 };
@@ -65,7 +66,7 @@ try {
   const positional = process.argv.slice(2).filter((a) => !a.startsWith("--"));
   const flags = new Map(process.argv.slice(2).filter((a) => a.startsWith("--")).map((a) => { const [k, v] = a.slice(2).split("="); return [k, v ?? true]; }));
   const [inputArg, targetArg, transcriptArg] = positional;
-  if (!inputArg || !targetArg) throw new Error("Usage: node create-project.cjs VIDEO PROJECT_DIR [TRANSCRIPT_JSON] [--proxy|--no-proxy] [--copy] [--deps=DIR] [--no-install] [--install-timeout=MIN]");
+  if (!inputArg || !targetArg) throw new Error("Usage: node create-project.cjs VIDEO PROJECT_DIR [TRANSCRIPT_JSON] [--proxy|--no-proxy] [--proxy-size=PX] [--copy] [--deps=DIR] [--no-install] [--install-timeout=MIN]");
   const source = path.resolve(inputArg), target = path.resolve(targetArg);
   if (!fs.statSync(source).isFile()) throw new Error("Input must be a file");
   if (fs.existsSync(target)) throw new Error("Project directory already exists: " + target);
@@ -89,6 +90,8 @@ try {
   const large = Math.min(video.width, video.height) > 1080 || fps > 31;
   const wantProxy = flags.has("proxy") || (large && !flags.has("no-proxy"));
   const depsDir = path.resolve(typeof flags.get("deps") === "string" ? flags.get("deps") : path.join(path.dirname(target), ".cache", "video-editor", "remotion-" + REMOTION));
+  const proxySize = Number(flags.get("proxy-size") ?? 480);
+  if (!(Number.isInteger(proxySize) && proxySize >= 144 && proxySize % 2 === 0)) throw new Error("--proxy-size must be an even number of pixels, 144 or more");
   const minutes = Number(flags.get("install-timeout") ?? 10);
   if (!(minutes > 0)) throw new Error("--install-timeout must be a positive number of minutes");
   const {modules, ...deps} = ensureDependencies(depsDir, !flags.has("no-install"), minutes);
@@ -99,7 +102,7 @@ try {
   fs.mkdirSync(path.join(target,"public"),{recursive:true});
   const sourceMode = linkOrCopy(source, path.join(target,"public",config.source), flags.has("copy"));
   const started = Date.now();
-  if (wantProxy) makeProxy(source, path.join(target,"public",config.proxy), video.width, video.height);
+  if (wantProxy) makeProxy(source, path.join(target,"public",config.proxy), video.width, video.height, proxySize);
   const proxySeconds = wantProxy ? Math.round((Date.now() - started) / 100) / 10 : null;
   for (const file of TEMPLATE_FILES) fs.copyFileSync(path.join(template,file),path.join(target,"src",file));
   fs.writeFileSync(path.join(target,"src","edit.js"),"export default "+JSON.stringify(config,null,2)+";\n");

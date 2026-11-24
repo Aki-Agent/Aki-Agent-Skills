@@ -13,12 +13,12 @@ Run locally, in the harness you are working in. Keep the video project in the ag
 |---|---|---|
 | 1. Transcribe | `python scripts/transcribe.py` | 8.2–8.7 s, 110 words (`small`, CPU int8, model cached) |
 | 2. Plan silences | `node scripts/plan-silence.cjs` | 3.1 s, 13 cuts, 42.42 → 33.53 s, longest pause 0.289 s |
-| 3. Create project | `node scripts/create-project.cjs` | proxy 15.2 s, source hardlinked, dependencies reused |
+| 3. Create project | `node scripts/create-project.cjs` | 480 px proxy 17.7 s (3.8 MB; the earlier 720 px proxy took 15.2 s, 12.7 MB), source hardlinked, dependencies reused |
 | 4. Edit `src/edit.js` | anchors to words or source time | — |
 | 5. Validate | `node scripts/validate-edit.cjs` | under 1 s |
-| 6. Review in Studio | headed browser tab | proxy only (12.7 MB instead of 463 MB); preview played at 60 fps |
+| 6. Review in Studio | headed browser tab | proxy only (3.8 MB instead of 463 MB); preview clock ran at real time (0.99–1.00×) |
 | — Stills before approval | `npx.cmd remotion still --scale=0.25` | about 11 s per frame from the 4K original |
-| 7. Render after approval | `npx.cmd remotion render` | 61 frames at `--scale=0.25`: 21.6 s from the proxy, 56.8 s from the original |
+| 7. Render after approval | `npx.cmd remotion render` | 61 frames at `--scale=0.25`: 21.6 s from the 720 px proxy, 56.8 s from the original |
 
 Requirements: Node.js, npx, FFmpeg 7+ and ffprobe on PATH; Python with `faster-whisper` for step 1. Tests: `node --test skills/video-editor/tests/video-editor.test.cjs` (7 tests, 3.9 s on an idle machine, synthetic audio). Every still or render copies `public/` into the bundle (475.7 MB on the sample), so keep unused media out of `public/`.
 
@@ -87,7 +87,7 @@ node <SKILL_DIR>/scripts/create-project.cjs "<VIDEO>" "<WORK_DIR>/project" "<WOR
 | Behavior | Default | Override |
 |---|---|---|
 | Source in `public/` | hardlink (instant, no extra disk; the file is not modified) | `--copy`; falls back to a copy across drives |
-| Proxy `public/proxy.mp4` | created when the short side is above 1080 px or fps above 30: short side 720 px, 30 fps, keyframe every second | `--proxy`, `--no-proxy` |
+| Proxy `public/proxy.mp4` | created when the short side is above 1080 px or fps above 30: short side 480 px, 30 fps, CRF 28, `-tune fastdecode`, keyframe every second, AAC 128k | `--proxy`, `--no-proxy`, `--proxy-size=<even px>` (for example 720 for a sharper preview) |
 | Dependencies | `node_modules` is a junction to one shared install in `<WORK_DIR parent>/.cache/video-editor/remotion-4.0.546`, installed on first use | `--deps=<DIR with node_modules>`, `--no-install`, `--install-timeout=<min>` |
 
 The target directory must not exist. The transcript must belong to this exact source and contain `segments[].words[]` with `word`, `start`, `end` in seconds. Dependencies are resolved before the project folder is created, so a failed install leaves nothing behind. The first shared install uses `npm`; if npm is a broken Corepack shim it retries with `npx --yes npm@10.9.2`; each attempt stops after `--install-timeout` minutes (10) and both real errors are reported. Measured here: the Corepack shim failed with `unable to verify the first certificate` and the fallback did not reach the registry in 5 minutes either, so the first install was not verified end to end; reuse (`--deps` pointing at an installed project) was. If npm cannot validate the registry certificate, use the system's trusted certificates; never disable TLS verification.
@@ -99,6 +99,14 @@ Start-Process -FilePath "powershell" -WorkingDirectory "<WORK_DIR>/project" -Arg
 ```
 
 `npx.cmd` avoids PowerShell's execution-policy problem with `npx.ps1`. Do not start a duplicate server for a running project; pick a free port for a second one. Open `http://localhost:3333/EditedVideo` in the harness's integrated browser and **activate the tab**. Studio plays `proxy.mp4` (check the network entries: only the proxy is requested); renders use the original. Studio listened on all network interfaces here; do not assume the media is private from other network clients.
+
+**Choppy audio in Studio only** (renders are not affected, they wait for every frame): each clip is its own `<Video>` player, and a player that is not premounted starts decoding on the frame of its cut, so chunks near the join are dropped. Clip sequences use `premountFor` (1 s). Measured by hooking `AudioBufferSourceNode.start` while playing the 11-clip sample: without premount, a fresh page (720 px proxy) dropped 4 × 21 ms at joins and a warm run (480 px) lost the whole last clip (6.5 s silent from its join); with premount, a warm run had no holes at joins. The first play after a cache-bypassing reload still dropped 1 s in 11 holes, so play once before judging the audio. Also keep the Studio tab in the foreground (background tabs are throttled), check that the network entries show `proxy.mp4` and not the source, and for a project created before the 480 px default rebuild the proxy in place:
+
+```powershell
+ffmpeg -y -i public/source.mp4 -vf "scale=480:-2" -r 30 -c:v libx264 -preset veryfast -tune fastdecode -crf 28 -g 30 -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart public/proxy.mp4
+```
+
+Use `scale=-2:480` for horizontal video, and add `proxy: "proxy.mp4"` to `edit.js` if the project had no proxy.
 
 ## 4. The edit plan (`src/edit.js`)
 
