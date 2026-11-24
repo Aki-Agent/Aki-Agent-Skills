@@ -9,7 +9,19 @@ Run locally in Aki Desktop. Keep the video project in the agent workspace, outsi
 
 ## Always show the result in Remotion Studio
 
-Every edit step must be visible to the user in Remotion Studio, in a headed, visible browser tab (Aki Desktop's integrated browser, tab activated). Open Studio right after creating the project and keep it open. After each change (cuts, captions, overlays, screens, zooms, silence plan), reload or let hot-reload update the composition, then confirm the new duration and playback in that tab before reporting. Do not report results only as files or a rendered MP4: the Studio preview is the primary deliverable and the render is produced afterwards for approved edits.
+Every edit step must be visible to the user in Remotion Studio, in a headed, visible browser tab (Aki Desktop's integrated browser, tab activated). Open Studio right after creating the project and keep it open. After each change (cuts, captions, overlays, screens, zooms, silence plan), reload or let hot-reload update the composition, then confirm the new duration and playback in that tab before reporting. Do not report results only as files or a rendered MP4: the Studio preview is the primary deliverable.
+
+### Never render the full video before the user approves
+
+Do **not** run `remotion render` on the whole composition until the user has reviewed the edit in Studio and approved it. A full render of a long or 4K video takes many minutes of CPU, and any later change to the cut, a caption or a timing invalidates it and forces another render. Iterate in Studio, where changes hot-reload instantly, and render only after approval.
+
+Allowed before approval, because each one takes seconds:
+
+- single stills with `remotion still ... --frame=<N>` to inspect a screen, an overlay or a caption;
+- very short clip exports (`--frames=0-30`) when motion itself must be checked;
+- measurements taken inside Studio through the browser.
+
+When a change is ready, ask for approval explicitly ("does this edit look right?") and wait. If the user asks for another change, keep working in Studio; do not re-render. Also report the expected render cost before starting one, and never leave a render running while editing, since both compete for CPU.
 
 ## 1. Create and open the project
 
@@ -23,7 +35,44 @@ npm install
 
 Omit the transcript argument if it is not available. The target directory must not already exist. The optional transcript must correspond to the exact source video, and contain `segments[].words[]` with `word`, `start`, and `end` in seconds; `probability` is optional. A transcript for an earlier cut is not synchronized with the original. The generator reports project metadata and word count as JSON and fails on missing timed words.
 
-Use the local `video_transcription` skill for a new transcript if available: read its instructions and request word timestamps. Otherwise obtain an equivalent word-timed transcript locally. Remotion displays captions; it does not itself guarantee recognition accuracy.
+Captions need a transcript with word timestamps. There is no bundled transcription script in this skill, so produce one locally with the procedure in "Transcribing locally" below. Remotion displays captions; it does not itself guarantee recognition accuracy.
+
+### Transcribing locally (verified)
+
+This is how the word-timed transcript is produced when no transcript exists. It needs FFmpeg and a Python environment with `faster-whisper`; no network service or API key is used.
+
+1. **Extract mono 16 kHz audio.** Whisper does not read the video directly, and the model expects 16 kHz mono.
+
+   ```powershell
+   ffmpeg -v error -y -i "<VIDEO>" -vn -ac 1 -ar 16000 -c:a pcm_s16le "<WORK_DIR>/audio-16k-mono.wav"
+   ```
+
+2. **Create a Python environment with `faster-whisper` once**, outside the video project, and reuse it for later videos:
+
+   ```powershell
+   python -m venv "<WORK_DIR>/venv"
+   "<WORK_DIR>/venv/Scripts/python.exe" -m pip install faster-whisper
+   ```
+
+3. **Transcribe with word timestamps** using a short script. The settings that worked: model `small`, `device="cpu"`, `compute_type="int8"`, `beam_size=5`, `temperature=0`, `condition_on_previous_text=False`, `vad_filter=True` with `min_silence_duration_ms=250`, and `word_timestamps=True`. Pass the language explicitly when known; auto-detection is the fallback. Keep the output in the same `segments[].words[]` shape the project generator expects (`word`, `start`, `end`, optional `probability`) so it can be passed straight to `create-project.cjs`.
+
+   ```python
+   from faster_whisper import WhisperModel
+   model = WhisperModel("small", device="cpu", compute_type="int8", download_root="<HF_CACHE>")
+   segments, info = model.transcribe("<WORK_DIR>/audio-16k-mono.wav", language=None, task="transcribe",
+       beam_size=5, temperature=0, condition_on_previous_text=False, vad_filter=True,
+       vad_parameters={"min_silence_duration_ms": 250, "speech_pad_ms": 100}, word_timestamps=True)
+   ```
+
+   The first run downloads the model weights into `download_root` (a few hundred MB). Ask the user before downloading weights.
+
+4. **Skip degenerate word spans instead of aborting.** faster-whisper sometimes emits a word with `start == end` (observed with a 0.04 probability on a single-letter token). Writing `segments` to JSON then fails with `emitted a non-positive word span`, which loses the whole transcript. Drop words where `end <= start`, count them in the output (`discarded_words`), and keep the rest.
+
+5. **Re-check low-confidence passages with a bigger model.** Runs with `model="medium"` and `clip_timestamps="<start>,<end>"` per doubtful window resolve unclear words without re-transcribing the whole file. Judge the result by `avg_logprob` and `no_speech_prob`: a segment with `no_speech_prob` near 0.4 over a gap that reads as digital silence is a hallucination, not speech.
+
+6. **Trust the audio over the transcript.** A word can carry a plausible timestamp and still be wrong or absent. Confirm with `silencedetect` and short-window RMS measurements before cutting or captioning around it, as described in "When the word guard fights the cut".
+
+7. **Fix spelling by hand before rendering.** Proper nouns and brand names are the usual failures; edit the generated `src/captions.js` tokens directly and keep the original `transcript.json` untouched as evidence.
 
 Start Studio in a **visible, independent console**, not in a tool-owned background command that ends with the turn. On Windows, from a PowerShell session use:
 
@@ -54,6 +103,19 @@ screens: [{start: 8, end: 10, type: "title", text: "New screen"}]
 Each clip has an inclusive start and exclusive end, converted to frames. Their order defines the result; the interval between clips is removed. `Sequence` and `Video trimBefore` implement the cuts. Studio hot-reloads edits; show the user each requested change and inspect the join with audio. Word timestamps are estimates and frame rounding affects boundaries: listen around both sides of each cut and adjust. Do not assume a transcript or successful render proves a syllable was cut correctly.
 
 The generator converts timed words to Remotion's `Caption` fields. `@remotion/captions` groups them into short pages and highlights the currently timed word. Captions use each clip's source time, so the second clip remains synchronized after a cut. The full-screen screen replaces the picture and captions for its duration while audio continues. Review transcription spelling, timing and contrast in the preview. `@remotion/captions` can also import SRT/VTT; phrase-level timestamps cannot provide exact word highlights. See [captions](https://www.remotion.dev/docs/captions) and [timing](https://www.remotion.dev/docs/timing).
+
+### Caption placement and zoom (default, approved by the user)
+
+Captions are a separate layer drawn **outside** the zoomed layer, so a punch-in scales the picture only and never the text. This was a bug in the first template: the caption lived inside the clip component, so every zoom also scaled it. Keep `CaptionLayer` as a sibling of the zoomed `AbsoluteFill` and never move it back inside a clip.
+
+Default position depends on the video orientation, so the same edit works for both:
+
+| Video | Position | Details |
+|---|---|---|
+| Vertical (portrait) | Centered, just below the middle | `top: 56%` with `translateY(-50%)`, 4% side margins, font size `width * 0.0625` |
+| Horizontal (landscape) | Classic bottom captions | `bottom: 7%`, font size `width * 0.032` |
+
+Set `captionsPosition: "center"` or `"bottom"` in `edit.js` to override the default for a specific project. Captions stay hidden while a full-screen card is on screen and sit below the `bottom-*` overlays. Verify placement in Studio by measuring the caption rectangle against `.remotion-studio-composition-container`; on a vertical project the vertical center must land near 56% of the frame height.
 
 ### Silence cutting (be aggressive by default)
 
@@ -88,6 +150,39 @@ Noise floor matters: measure it before trusting `-35dB`. On `clip-b.mp4` the pau
 ## 3. Visual effects
 
 `zooms` animates scale in and out with Remotion interpolation and easing. `ramp` is seconds at each end and is shortened for short events. `overlays` draw a component over the video; `screens` display a full-frame component while retaining the speech audio. Text, timing, content, and additional effects must reflect the user's request.
+
+### Visual strategy (default, approved by the user)
+
+The edit is driven by **zooms and full-screen cards**. Alerts and other small overlays are the exception, not the base of the edit.
+
+| Element | Default budget | Purpose |
+|---|---|---|
+| `zooms` | At most **2 per 30 s** window | Keep the face alive on a talking-head video; punch in, do not ramp |
+| `screens` | The main visual device; as many as the content supports | Show data, descriptions, key phrases, illustrative charts, or an image of the news/person being discussed |
+| `overlays` (`alert`, `callout`, `badge`, …) | **At most 1–2 per video**, and only to highlight something truly important | Short emphasis only |
+
+Rules:
+
+- Do not decorate every beat with an overlay. A 175.3 s edit shipped with 5 overlays (`callout`, `badge`, `alert`, `icon`, `cta`) and the user asked for fewer. Prefer a screen that carries the information over a box that repeats the sentence.
+- Budget the zooms per window of output time, not per clip: count them in 30 s slices and never exceed two.
+- Prefer a screen when the speaker names data, a comparison, a definition, a list of steps, or a person/company in the news. A screen holds attention longer than a floating box and does not fight the captions.
+- Keep at least one overlay slot free in case the user asks to highlight a specific moment later.
+
+Check the budget before showing the edit: count `zooms` per 30 s slice and total `overlays`, and report both numbers.
+
+### Cutting false starts and stumbles
+
+Speakers restart sentences: the first take breaks off mid-word and the speaker starts the same sentence again. The first take is a stumble and must be cut, leaving the clean second take. Silence detection never proposes this cut because the words are spoken continuously. On `clip-c.mp4` the removed stumble was 3.0 s, taking the edit from 33.5 s to 30.5 s. Describe the example in English even when the recording is in another language.
+
+Procedure:
+
+1. Find the repeated opening in the transcript (two similar segments a few seconds apart).
+2. Choose the exit point at a local energy minimum right after the last word you keep, and the re-entry point just before the first word of the second take. Both must read below −40 dB in the 20 ms energy profile; never cut inside a syllable.
+3. Split the clip that spans the stumble, keeping the part before the exit point and the part after the re-entry point, then rebuild the clip list. On a 30 s edit one stumble removed 3.0 s.
+4. Rebuild `captions.js` from the transcript instead of patching the old file: keep every word that any kept clip overlaps. A fixed overlap threshold drops real short words (a two-letter preposition, for example) that sit entirely inside a clip, so use `min(0.05, wordDuration)`. Verify that only the words of the removed stumble disappeared.
+5. Re-check the joined audio: `silencedetect` must still show no pause over 0.40 s, and the join itself must sit in silence.
+
+Never drop captions by comparing start times against clip starts: a word can start a few milliseconds before the clip and still be fully spoken.
 
 ### Component library (`src/components.jsx`)
 
@@ -158,7 +253,7 @@ Placement guidelines: give an overlay at least 2.5 s so it can be read, and a li
 
 ## 4. Render and verify
 
-Only render when the requested edit is ready. Use the output location requested by the user; for this development session test results go into the designated Result folder. Example:
+Only render when the requested edit is ready **and the user has approved the Studio preview** (see "Never render the full video before the user approves"). Use the output location requested by the user; for this development session test results go into the designated Result folder. Example:
 
 ```powershell
 npx.cmd remotion render src/index.jsx EditedVideo "<OUTPUT.mp4>" --scale=0.5 --concurrency=2
@@ -176,4 +271,4 @@ For `clip-a.mp4` (2160×3840, 60 fps, 237.6 s) keep two projects: a `preview` on
 
 ## Verified development sample
 
-Using the previously prepared 1119 tight video and its matching word-timed transcript, a Remotion 4.0.546 project showed two clips separated by a removed interval, grouped word captions, a text overlay, a full-screen card and an animated zoom. Studio preview displayed the composition. A 25.6 s preview was rendered at 360×640 with audio and video, and fully decoded without FFmpeg errors. A separately generated project using the reusable template also exported an 11.115 s preview with both streams and passed a full decode. The visual result and cut audio still require user review. This measurement is one sample, not a performance guarantee.
+Using a previously prepared tight video and its matching word-timed transcript, a Remotion 4.0.546 project showed two clips separated by a removed interval, grouped word captions, a text overlay, a full-screen card and an animated zoom. Studio preview displayed the composition. A 25.6 s preview was rendered at 360×640 with audio and video, and fully decoded without FFmpeg errors. A separately generated project using the reusable template also exported an 11.115 s preview with both streams and passed a full decode. The visual result and cut audio still require user review. This measurement is one sample, not a performance guarantee.
