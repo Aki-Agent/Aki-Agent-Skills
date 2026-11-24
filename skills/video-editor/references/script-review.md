@@ -1,6 +1,6 @@
 # Script consistency review (optional)
 
-Run only when the user asks for it. The goal is a kept script that reads as one clean explanation: no repeated takes, no abandoned sentences, no leftovers of earlier cuts. `review-script.cjs` prepares the material; the decisions are yours, and the user approves them before any clip changes.
+Run only when the user asks for it. The goal is a kept script that reads as one clean explanation: no repeated takes, no abandoned sentences, no leftovers of earlier cuts. `review-script.cjs` prepares the material; the decisions are yours, and you apply them without asking; the user reviews the result in Remotion Studio.
 
 ```powershell
 node <SKILL_DIR>/scripts/review-script.cjs "<WORK_DIR>/transcript.json" "<PROJECT_DIR>" "<WORK_DIR>/review.json"
@@ -39,6 +39,6 @@ The transcript can hide a stumble or invent words:
 - `medium` returning only a thank-you or a subtitle-marker phrase over a short sound is a Whisper hallucination: treat it as non-speech and ask the user to listen.
 - A word with very low probability (`low_confidence_words`) and an unusual length may be a filler or a stumble that Whisper turned into a word.
 
-## Propose, then wait
+## Apply, then report
 
-Present one table: transcript indices, source seconds, the text removed, the reason, and the sentence as it reads after the cut. Mark anything that needs a listen. Apply nothing until the user approves; then split clips at energy minima below −40 dB, as in "Cutting false starts and stumbles", and run `validate-edit.cjs`.
+Keep one table for the final report: transcript indices, source seconds, the text removed, the reason, and the sentence as it reads after the cut. Apply it directly, without waiting for approval: split clips at energy minima below −40 dB, as in "Cutting false starts and stumbles", and run `validate-edit.cjs`.

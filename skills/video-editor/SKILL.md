@@ -80,7 +80,7 @@ Speakers restart sentences; silence detection never proposes this cut because th
 
 ### Optional passes: only when the user asks
 
-These two passes are not part of the default pipeline. Run them only when the user asks for them, and only then. Both edit nothing: they produce proposals, you show them as a table (source seconds, what is removed, why, how the sentence reads after), and you change clips only after the user approves.
+These two passes are not part of the default pipeline. Run them only when the user asks for them, and only then. When asked, apply the result yourself: do not stop at a proposal and do not ask for approval of each cut. Make the cuts in `edit.js`, fix the captions, validate, open Remotion Studio on the edited composition and report what was applied. The Studio preview is the user's review; they ask for a change there, or approve the render (see "Never render the full video before the user approves").
 
 **Throat clearings and noises.** Whisper rarely transcribes a throat clearing, and the silence planner keeps it because it is loud. Run, with the current project (or a plan JSON with `clips`, or `-` for the whole file):
 
@@ -109,10 +109,10 @@ When the user asks for one or both passes, run them on the current project and f
 1. Run `detect-noises.cjs` and `review-script.cjs` with `<PROJECT_DIR>`, writing into a new folder such as `<WORK_DIR>/optional/` (outputs are never overwritten).
 2. Re-transcribe every `voiced` wordless clip, every word you doubt, and the edges of every run the edit already removes (`kept: false` in `review.json`) with `transcribe.py --clip START,END --model medium`, 1 s of context on each side. `small` mishears leftovers: on the test video, three kept words at 417.1–417.5 s were the tail of a sentence the edit had already removed, and the word `medium` places at 424.0 s was attributed to 417.5 s by `small`.
 3. Read `review.txt` top to bottom and classify with [references/script-review.md](references/script-review.md).
-4. Extract a short WAV for every doubtful item so the user can listen: `ffmpeg -ss <START-0.5> -t <SECONDS> -i "<VIDEO>" -vn -ac 1 "<WORK_DIR>/optional/listen-<name>.wav"`.
-5. Present three groups: **safe cuts** (source seconds, removed text, reason, how the sentence reads after), **caption fixes** (retime, add a word Whisper dropped, spelling), and **to listen** (with the WAV paths). Do not cut parallel phrasing, emphasis or the only take of a sentence.
-6. After approval, apply each cut by deleting the whole clip when the cut matches a clip (the silence planner already put its edges in silence); otherwise split it as in "Cutting false starts and stumbles". Fix captions in `src/captions.js`, since `keptCaptions` drops the words of removed clips but cannot add a word or move it to where the audio has it.
-7. Run `validate-edit.cjs`, check that the caption count fell only by the removed words, and review the joins in Studio.
+4. Extract a short WAV for every item that stays doubtful so the user can listen later: `ffmpeg -ss <START-0.5> -t <SECONDS> -i "<VIDEO>" -vn -ac 1 "<WORK_DIR>/optional/listen-<name>.wav"`.
+5. Decide, do not ask. Cut every safe item (noise, abandoned or repeated take, leftover of an earlier cut); fix captions (retime, add a word Whisper dropped, spelling). Do not cut parallel phrasing, emphasis or the only take of a sentence. Keep items that stay doubtful after the `medium` re-check and list them in the final report with their WAV paths; do not block on them.
+6. Apply each cut by deleting the whole clip when the cut matches a clip (the silence planner already put its edges in silence); otherwise split it as in "Cutting false starts and stumbles". Fix captions in `src/captions.js`, since `keptCaptions` drops the words of removed clips but cannot add a word or move it to where the audio has it.
+7. Run `validate-edit.cjs`, check that the caption count fell only by the removed words, and review the joins in Studio. Then start Studio (or reload it) on the edited composition, and finish with the applied-cuts table plus the items kept for listening. Do not render.
 
 ## 3. Create and open the project
 
