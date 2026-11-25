@@ -21,7 +21,7 @@ const registry = (source, name) => {
   return m ? m[1].split(",").map((pair) => pair.split(":")[0].trim()).filter(Boolean) : null;
 };
 const positionOf = (item, kind) => item.position ?? (kind === "overlay" ? ({lowerThird:"bottom-left", alert:"top-center", notification:"top-center",
-  icon:"center", badge:"top-right", counter:"top-center", cta:"bottom-center", sidePanel:"side", ticker:"bottom"}[item.type ?? "callout"] ?? "top-left") : "full");
+  icon:"center", badge:"top-right", counter:"top-center", cta:"bottom-center", sidePanel:"side", ticker:"bottom", image:"top-right"}[item.type ?? "callout"] ?? "top-left") : "full");
 
 (async () => {
   try {
@@ -68,6 +68,37 @@ const positionOf = (item, kind) => item.position ?? (kind === "overlay" ? ({lowe
       }).filter(Boolean);
     }
 
+    // Media: music, sound effects and local images must exist in public/ (renders cannot fetch a missing file).
+    const publicDir = path.join(path.resolve(projectArg), "public");
+    const needFile = (src, label) => { if (typeof src !== "string" || !src) errors.push(`${label} has no src`); else if (!/^(https?:|data:)/.test(src) && !fs.existsSync(path.join(publicDir, src))) errors.push(`${label}: ${src} is missing from public/`); };
+    let musicSummary = null;
+    if (plan.music) {
+      needFile(plan.music.src, "music");
+      if (!(plan.music.duration > 0)) errors.push("music.duration must be the song length in seconds (written by music.cjs)");
+      else musicSummary = {src: plan.music.src, volumeDb: plan.music.volumeDb ?? -40, repeats: Math.ceil(durationInFrames(plan) / Math.max(1, Math.floor(plan.music.duration * plan.fps)))};
+      if (plan.music.volumeDb !== undefined && !Number.isFinite(plan.music.volumeDb)) errors.push(`music.volumeDb "${plan.music.volumeDb}" is not a number`);
+    }
+    const sfxOf = (spec) => typeof spec === "string" ? {src: spec} : spec;
+    let sfxCount = 0;
+    // Defaults for every screen (in/out) and zoom; an item's own sfx/sfxOut wins and false silences it.
+    for (const [spec, label] of [[plan.screenSfx?.in, "screenSfx.in"], [plan.screenSfx?.out, "screenSfx.out"], [plan.zoomSfx, "zoomSfx"]]) if (spec) needFile(sfxOf(spec).src, label);
+    const defaults = {sfx: {screens: plan.screenSfx?.in, zooms: plan.zoomSfx}, sfxOut: {screens: plan.screenSfx?.out}};
+    for (const field of ["overlays", "screens", "zooms"]) (plan[field] ?? []).forEach((item, i) => {
+      for (const key of field === "screens" ? ["sfx", "sfxOut"] : ["sfx"]) {
+        const spec = item[key] === false ? null : item[key] ?? defaults[key][field];
+        if (!spec) continue;
+        sfxCount++;
+        if (item[key]) needFile(sfxOf(item[key]).src, `${field}[${i}].${key}`);
+      }
+      if (item.type === "image") needFile(item.src, `${field}[${i}] (image)`);
+    });
+    (plan.sfx ?? []).forEach((item, i) => {
+      sfxCount++;
+      needFile(item.src, `sfx[${i}]`);
+      try { const r = resolveItem(item, plan, captions); if (!(r.start >= 0 && r.start < total)) errors.push(`sfx[${i}] starts at ${round(r.start)} s, outside the edit (0-${round(total)} s)`); }
+      catch (error) { errors.push(`sfx[${i}]: ${error.message}`); }
+    });
+
     // Theme: known preset and effect, valid hex colors, readable text on the screen background.
     const themesFile = path.join(src, "themes.mjs");
     let themeSummary = null;
@@ -109,12 +140,13 @@ const positionOf = (item, kind) => item.position ?? (kind === "overlay" ? ({lowe
 
     const result = {ok: errors.length === 0, outputSeconds: round(total), clips: buildClips(plan).length,
       captions: {total: allCaptions.length, kept: captions.length},
-      budget: {zoomsPer30s: windows, overlays: resolved.overlays.length, screens: resolved.screens.length}, theme: themeSummary,
+      budget: {zoomsPer30s: windows, overlays: resolved.overlays.length, screens: resolved.screens.length}, theme: themeSummary, music: musicSummary, sfx: sfxCount,
       items: Object.values(resolved).flat().map((r) => ({item: r.label, start: round(r.start), end: round(r.end)})),
       errors, warnings};
     process.stderr.write(`${result.ok ? "OK" : "FAILED"}: ${result.outputSeconds} s, ${result.clips} clips, captions ${captions.length}/${allCaptions.length} kept, `
       + `zooms per 30 s [${windows.join(", ")}], ${resolved.overlays.length} overlays, ${resolved.screens.length} screens`
-      + (themeSummary ? `, theme ${themeSummary.preset} (${themeSummary.primary} / ${themeSummary.secondary} / ${themeSummary.tertiary})` : "") + "\n");
+      + (themeSummary ? `, theme ${themeSummary.preset} (${themeSummary.primary} / ${themeSummary.secondary} / ${themeSummary.tertiary})` : "")
+      + (musicSummary ? `, music ×${musicSummary.repeats} at ${musicSummary.volumeDb} dB` : "") + (sfxCount ? `, ${sfxCount} sfx` : "") + "\n");
     for (const e of errors) process.stderr.write("  error: " + e + "\n");
     for (const w of warnings) process.stderr.write("  warning: " + w + "\n");
     console.log(JSON.stringify(result, null, 2));

@@ -11,6 +11,7 @@ venv/
 .env.*
 
 # Skill output artifacts
+out.json
 yt-transcripts/
 yt-test/
 docx-output/

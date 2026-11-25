@@ -7,6 +7,33 @@ description: Edit local videos with Remotion Studio in the agent harness you are
 
 Run locally, in the harness you are working in. Keep the video project in the agent workspace, outside this skill and other repositories. Keep the original media unchanged. Do not commit generated videos, transcripts, or project data. Do not commit or push skill changes unless the user asks. Measured case notes behind every default are in [references/lessons.md](references/lessons.md).
 
+## First run: requirements and install
+
+Check every row before the first edit and install only what is missing; ask the user before installing system software or downloading models. Verified on Windows 11 (16 threads, no usable GPU).
+
+| Requirement | Minimum | Verified here | Used by | Check |
+|---|---|---|---|---|
+| Node.js | 18 (global `fetch`, `node --test`; Remotion 4 alone needs 16) | 22.13.1 | every script, Remotion | `node -v` |
+| npm | a working npm; a broken Corepack shim is retried as `npx npm@10.9.2` | the Corepack shim failed (`unable to verify the first certificate`) | first shared Remotion install | `npm -v` |
+| FFmpeg + ffprobe on PATH | 7 | 8.1.2 (gyan.dev full build) | proxy, silences, cuts, music, sound effects, export | `ffmpeg -version`, `ffprobe -version` |
+| Python | 3.9 (`Requires-Python` of faster-whisper 1.2.1) | 3.11.9 | transcription | `py -3 --version` (Windows), `python3 --version` |
+| faster-whisper, in a venv | 1.2.1 (pinned) | 1.2.1 with av 18.1.0, ctranslate2 4.8.4, onnxruntime 1.31.1, tokenizers 0.23.3 | `transcribe.py`, `locate.cjs` | `<VENV>/Scripts/python.exe -c "import faster_whisper; print(faster_whisper.__version__)"` |
+| Whisper models | `small` (transcription); `medium` (`locate --medium`, re-checks) | downloaded once with `--allow-download` | `transcribe.py` | the `--cache-dir` folder |
+| Remotion | `remotion`, `@remotion/cli`, `@remotion/media`, `@remotion/captions` 4.0.546; `react`, `react-dom` 19.2.0 (pinned in `create-project.cjs`) | 4.0.546 | Studio, stills, renders | installed once into the shared `.cache/video-editor/remotion-4.0.546` |
+| Chrome Headless Shell | downloaded by Remotion on the first still or render | 158.0.8127.2-remotion-v3 | stills, renders | `node_modules/.remotion/chrome-headless-shell/` |
+| curl | any (Windows 10+ ships `curl.exe`) | 8.22.0 (Schannel) | `sfx.cjs`, `find-image.cjs` when Node's `fetch` fails TLS | `curl --version` |
+
+First run, in order:
+
+1. Run the checks above. Install what is missing: Node from nodejs.org or nvm; FFmpeg with `winget install Gyan.FFmpeg`, `brew install ffmpeg` or `apt install ffmpeg`; Python 3.11 from python.org.
+2. Create the venv and install `faster-whisper==1.2.1` (see "1. Transcribe locally").
+3. Ask the user, then download `small` with `transcribe.py --allow-download` (a few hundred MB); `medium` only the first time a re-check needs it.
+4. `create-project.cjs` installs the pinned Remotion packages once; later projects reuse them.
+5. The first still or render downloads Chrome Headless Shell (on certificate errors see "7. Render and verify").
+6. `node --test skills/video-editor/tests/video-editor.test.cjs` (14 tests, Node and FFmpeg only; 16.1 s here).
+
+Network is needed only for these installs, the models, sound effects and images. Here Node's `fetch` failed every HTTPS request with `UNABLE_TO_VERIFY_LEAF_SIGNATURE` while `curl.exe` (system certificate store) worked, so `scripts/net.cjs` falls back to curl. Never disable TLS verification.
+
 ## Fast path (default)
 
 Most of an edit's time used to go into the agent chaining steps by hand and writing one-off scan, map and fix scripts. Do not write such scripts: these two commands cover the mechanical work, and the agent only makes the editorial decisions.
@@ -26,7 +53,7 @@ Most of an edit's time used to go into the agent chaining steps by hand and writ
    ```
 
    Re-transcribe at `medium` (`locate.cjs source:<t> --medium`, see "Fixing what the user points out") only the `voicedWordlessClips` and words you truly doubt; nothing else. On the test video, one call applied 6 script cuts and 3 clip cuts (247.6 → 217.3 s, 88 words, every join −68 to −76 dB). When `small` mistimed a stumble, a `words:` edge can land inside the good take (`--dry-run` shows it); then remove the whole clip with `source:` and the clip's own edges.
-4. **Theme, screens and zooms** in `src/edit.js`, anchored to words or source time so later cuts never need remapping. Edit only the `theme`, `zooms`, `screens` and `overlays` keys; `cut.cjs` rewrites `clips`. Set the whole brand palette as `theme` first (for Anthropic or Claude topics, the one in [Brand palettes](references/themes.md#brand-palettes)); a bare `{preset: "editorial"}` brings the preset's teal and amber.
+4. **Theme, screens and zooms** in `src/edit.js`, anchored to words or source time so later cuts never need remapping. Edit only the `theme`, `zooms`, `screens`, `overlays` and `sfx` keys; `cut.cjs` rewrites `clips` and `music.cjs` writes `music`. Images, sound effects and music: see "Images of people, companies and products", "Sound effects" and "Background music". Set the whole brand palette as `theme` first (for Anthropic or Claude topics, the one in [Brand palettes](references/themes.md#brand-palettes)); a bare `{preset: "editorial"}` brings the preset's teal and amber.
 5. `validate-edit.cjs`, reload Studio, report. Render only after approval, with `scripts/export.cjs` (1080p 30 fps by default; see "Render and verify").
 
 ## Fixing what the user points out (surgical, no new pipeline)
@@ -95,7 +122,7 @@ A project keeps the copy of `src/components.jsx` it was created with. After a te
 | — Stills before approval | `npx.cmd remotion still --scale=0.25` | about 11 s per frame from the 4K original |
 | 7. Render after approval | `node scripts/export.cjs` (see "Render and verify") | 61 frames at `--scale=0.25`: 21.6 s from the 720 px proxy, 56.8 s from the original; a 10-minute source at 1080p 30 fps: about 3 min + 845 s |
 
-Requirements: Node.js, npx, FFmpeg 7+ and ffprobe on PATH; Python with `faster-whisper` for step 1. Tests: `node --test skills/video-editor/tests/video-editor.test.cjs` (13 tests, synthetic audio; 10.9 s here). Every still or render copies `public/` into the bundle (475.7 MB on the sample), so keep unused media out of `public/`.
+Requirements and first install: see "First run: requirements and install". Tests: `node --test skills/video-editor/tests/video-editor.test.cjs` (14 tests, synthetic audio; 16.1 s here). Every still or render copies `public/` into the bundle (475.7 MB on the sample), so keep unused media out of `public/`.
 
 ## Always show the result in Remotion Studio
 
@@ -242,7 +269,7 @@ theme: {preset: "neon", primary: "#22d3ee", secondary: "#facc15"}, showSafeZones
 
 A missing word throws in Studio and is an error in the validator.
 
-**Other fields:** `captionsPosition` (`"center"` / `"bottom"`), `captionsMaxWords` (4 vertical, 6 horizontal), `fontFile` (font in `public/`, loaded locally), `joinFadeFrames` (1), `screenSettle` (true), `showSafeZones` (false), `theme`, `proxy`.
+**Other fields:** `captionsPosition` (`"center"` / `"bottom"`), `captionsMaxWords` (4 vertical, 6 horizontal), `fontFile` (font in `public/`, loaded locally), `joinFadeFrames` (1), `screenSettle` (true), `showSafeZones` (false), `theme`, `proxy`, `music` (written by `music.cjs`), `sfx` (free-standing sound effects), `screenSfx`, `zoomSfx` (default sounds; see "Sound effects").
 
 ### Validate before showing
 
@@ -252,7 +279,7 @@ node <SKILL_DIR>/scripts/validate-edit.cjs "<WORK_DIR>/project"
 
 It resolves the anchors with the project's own `timeline.mjs` and reports errors (exit 1) and warnings:
 
-- errors: clips with `end <= start` or outside the source, items with zero or negative frames, items outside the edit, unknown `type`, missing anchor word, missing proxy, unknown theme `preset` or `effect`, theme colors that are not `#rgb`/`#rrggbb`;
+- errors: clips with `end <= start` or outside the source, items with zero or negative frames, items outside the edit, unknown `type`, missing anchor word, missing proxy, music, sound effect or image file missing from `public/`, `music` without `duration`, unknown theme `preset` or `effect`, theme colors that are not `#rgb`/`#rrggbb`;
 - warnings: more than 2 zooms in a 30 s window, more than 2 overlays, overlapping screens, overlapping overlays in one position, overlays under 2.5 s, overlapping clips, theme text below 4.5:1 on its background.
 
 Report its summary line (duration, clips, captions kept, zooms per 30 s, overlays, screens) with each preview.
@@ -302,6 +329,50 @@ ffmpeg -i "<OUTPUT.mp4>" -af loudnorm=I=-14:TP=-1.5:LRA=11 -c:v copy -c:a aac -b
 
 On a 1 s test render this measured −14.2 LUFS integrated afterwards (`ebur128`), with both streams kept.
 
+### Background music (only when the user attaches a song)
+
+```powershell
+node <SKILL_DIR>/scripts/music.cjs "<WORK_DIR>/project" "<SONG>" [--voice | --no-voice] [--db=N] [--fade-out=1] [--dry-run]
+node <SKILL_DIR>/scripts/music.cjs "<WORK_DIR>/project" --remove
+```
+
+- **Length:** the script measures the song and the edit and reports `repeats` and `lastRepeatSeconds`. `Video.jsx` plays the song back to back exactly `ceil(edit / song)` times (Studio shows `Music 1/N`…) and cuts the last repetition at the last frame, never past it, with a `fadeOut` (1 s). Repetitions are computed from `music.duration` at render time, so later cuts need no new music pass.
+- **Volume** (`volumeDb`, a gain on the file): **−40 dB** when someone talks, **−5 dB** on a video without voice. Without `--voice`/`--no-voice` the project's captions decide (any word = speech); `--db` is for what the user asks.
+- The song is copied to `public/audio/music/` (`export.cjs` copies subfolders of `public/` into the render, but skips media at its top level). `edit.js` is rewritten as JSON, like `cut.cjs`.
+
+Measured on the 212.7 s test edit with a 40.5 s song: 6 repetitions, the last one 10.183 s (5 × 40.5 + 10.183 = 212.683 s). Rendered without speech, the music peaked at −59.7 dB (song peak −19.7 dB − 40), the last second faded to silence and the audio ended on the last frame.
+
+### Sound effects on screens, images and overlays
+
+Free CC0 1.0 effects from creatorassets.com (commercial use, no attribution; the terms forbid scraping that degrades the site, so fetch only the packs you need):
+
+```powershell
+node <SKILL_DIR>/scripts/sfx.cjs packs                                  # 31 packs: slug, name, asset count
+node <SKILL_DIR>/scripts/sfx.cjs list "<WORK_DIR>/project" swoosh       # each file with length and peak
+node <SKILL_DIR>/scripts/sfx.cjs get "<WORK_DIR>/project" swoosh/7 pop/4 bassy-impact/1
+```
+
+`list` downloads a pack once into `<WORK_DIR>/.cache/video-editor/sfx/` (about 1 s per file here: swoosh 10 files in 11.4 s). `get` writes `public/audio/sfx/<pack>-<n>.wav` with the leading silence removed (0.03–0.09 s on these files) and the peak normalized to −1 dBFS, so the same `volumeDb` sounds alike for every file. Pick by use and length:
+
+| Moment | Pack | Measured lengths |
+|---|---|---|
+| a screen enters or leaves, a zoom | `swoosh` (in `7`, out `1`, zoom `6` on the test edit) | 0.56–0.63 s, peaks −11.9 to −23 dB before normalizing |
+| an image or overlay pops in | `pop` | 0.55–1.08 s |
+| a `breaking` or `stat` screen, a big figure | `bassy-impact` | 0.92–2.57 s |
+| `alert`, `notification`, `cta` click | `ding`, `notification`, `click-mouse-click`, `button`, `modern-interface` | not measured |
+
+Use them in `edit.js` at **−15 dB** (the default). `screenSfx` and `zoomSfx` give every screen an entrance and an exit sound and every zoom a whoosh; an item's own `sfx`/`sfxOut` replaces the default and `false` silences it:
+
+```js
+screenSfx: {in: "audio/sfx/swoosh-7.wav", out: "audio/sfx/swoosh-1.wav"},   // exit starts 0.3 s before the screen ends
+zoomSfx: "audio/sfx/swoosh-6.wav",
+screens: [{word: "<WORD>", duration: 3, type: "breaking", sfx: "audio/sfx/bassy-impact-1.wav", sfxOut: false}],
+overlays: [{start: 20, end: 24, type: "image", src: "images/person.jpg", sfx: {src: "audio/sfx/pop-4.wav", volumeDb: -15}}],
+sfx: [{src: "audio/sfx/swoosh-7.wav", word: "<WORD>", offset: -0.1}],   // free-standing: start | word | at:"source"
+```
+
+An item's `sfx` plays at its start; `offset` (s) shifts it (−0.1 lets a whoosh lead a slide) and the start is clamped to 0. Keep effects for screens, zooms and images; not on caption pages. Measured in a render without speech at −8 dB gain: pop and impact peaked at −9.0 dB (−1 − 8) starting on their frame, and the swoosh on a screen at 0.003 s started at 0. All 10 `swoosh` files keep the same peak in a mono downmix (no phase cancellation). An audio-only check (`npx.cmd remotion render ... --codec=wav --frames=0-2099 --props="{\"proxy\":true}"`) rendered 35 s in about 43 s.
+
 ### Safe zones
 
 `showSafeZones: true` draws a Studio-only guide; it never appears in stills or renders. Vertical: top 10 %, bottom 20 % and a right column (16 % wide, 40–80 % of the height) where Shorts/Reels/TikTok draw their interface; these are approximations, not measured per platform. Horizontal: a 2.5 % action-safe border. Keep text and badges out of the marked areas.
@@ -326,6 +397,7 @@ Preview everything in the `Gallery` composition (`/Gallery`, project size) and `
 | `cta` | Subscribe button that is "clicked" | `text` (`Subscribe`), `doneText` (`Subscribed`), `icon` (`bell`), `clickAt` (1 s), `color`, `position` (`bottom-center`) |
 | `sidePanel` | Horizontal-first: panel next to the speaker, items revealed one by one | `title`, `items[]`, `icon` (`check`), `side` (`right`), `color` |
 | `ticker` | Horizontal-first: news bar with a looping scroll | `label` (`Live`), `text`, `color`, `speed` (1), `position` (`bottom` or `top`) |
+| `image` | Photo card next to the speaker (person, company logo, product) that pops in, with a name plate | `src` (file in `public/` or URL), `title`, `subtitle`, `credit`, `shape` (`rounded` or `circle`), `fit` (`cover` for photos, `contain` on white for logos), `size` (34 % of the short side), `color` (border), `position` (`top-right`) |
 
 **Screens** (full frame; speech audio continues). `transition`: `fade` (default, 0.2 s), `slide` (from below), `wipe` (left to right), `zoom` (scales into place); motion transitions take 0.3 s and mirror on exit.
 
@@ -354,6 +426,24 @@ In horizontal video, place `sidePanel` opposite the speaker and keep `ticker` to
 To add a component, write it in `components.jsx`, register it in `OVERLAYS` or `SCREENS`, add a sample to `galleryItems` (or `horizontalItems`), and document it here. The validator reads the registries, so new types are recognized automatically.
 
 **Layout check in Studio** (verified): the frame is `.remotion-studio-composition-container`. Pause first; `Shift+ArrowRight`/`Shift+ArrowLeft` move 1 s. Studio keeps neighboring sequences mounted, so only measure elements where `checkVisibility({visibilityProperty:true})` is true, and not on an item's first frame (entrances start off-screen). `@remotion/media` draws video to a canvas, so there is no `<video>` element to inspect; use `performance.getEntriesByType("resource")` to see which file is loaded.
+
+### Images of people, companies and products
+
+Use the `image` overlay while the speaker stays on camera, the `image` screen when the picture should fill the frame. Image overlays count toward the 1–2 overlays per video; more pictures go on `image` screens. Get the file with `find-image.cjs` (Wikimedia Commons, free licenses only) and keep it in `public/images/`; renders should not depend on remote URLs.
+
+```powershell
+node <SKILL_DIR>/scripts/find-image.cjs lead "<PERSON>"                          # the image of a Wikipedia article, if it is on Commons
+node <SKILL_DIR>/scripts/find-image.cjs search "<COMPANY> logo" --limit=5        # Commons files: size, license, author
+node <SKILL_DIR>/scripts/find-image.cjs get "<WORK_DIR>/project" "File:<LOGO>.svg" --name=company-logo
+```
+
+1. People: `lead "<Wikipedia article>"` first (`--lang=es` for other wikis). Companies and products: `search "<name> logo"` or the product name; a company article's image is often a building.
+2. Prefer a recent, front-facing photo at least 1000 px on its short side; open the file `page` when the description is ambiguous.
+3. `get` saves a raster copy (SVG logos come back as PNG) and prints `src` and `credit` (`author / license / Wikimedia Commons`). Put `credit` on the item whenever `attributionRequired` is true (always for CC BY and CC BY-SA).
+4. `lead` reports article images that are not on Commons: those are usually non-free (logos, posters); do not use them.
+5. Nothing suitable: ask the user for the image (a file they own or have rights to) instead of using an unrelated one. The edit works without it.
+
+Measured here: a person search returned a 1500×1941 CC BY 2.0 portrait; a logo search returned a public-domain SVG, saved as a 20.6 KB PNG at 1200 px. In a 0.25-scale still of the 2160×3840 edit, the portrait card sat exactly in the computed `top-right` box with its name plate below, and the logo (`fit: "contain"`) on white.
 
 ## 7. Render and verify
 

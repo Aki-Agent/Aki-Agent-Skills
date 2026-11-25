@@ -1,6 +1,6 @@
 import React from "react";
 import {AbsoluteFill, Sequence, Easing, interpolate, spring, useCurrentFrame, useVideoConfig, staticFile, getInputProps, getRemotionEnvironment, delayRender, continueRender, cancelRender} from "remotion";
-import {Video} from "@remotion/media";
+import {Audio, Video} from "@remotion/media";
 import {createTikTokStyleCaptions} from "@remotion/captions";
 import editConfig from "./edit";
 import allCaptions from "./captions";
@@ -94,6 +94,51 @@ const Clip = ({index, start, length}) => {
   </AbsoluteFill>;
 };
 
+const gainOf = (db) => Math.pow(10, db / 20);
+
+// Background music (`music` in edit.js, written by scripts/music.cjs): the song repeats back to back
+// exactly as many times as the edit needs, and the last repetition is cut at the end of the video.
+// Repetitions are computed here from `music.duration`, so later cuts never need a new music pass.
+// `volumeDb` is a gain on the file (-40 under speech, -5 without voice); `fadeOut` seconds at the end (1).
+const MusicLayer = () => {
+  const {fps, durationInFrames: total} = useVideoConfig();
+  const music = config.music;
+  if (!music) return null;
+  const song = Math.max(1, Math.floor(music.duration * fps)), repeats = Math.ceil(total / song);
+  const gain = gainOf(music.volumeDb ?? -40), fade = toFrame(music.fadeOut ?? 1, fps);
+  return Array.from({length: repeats}, (_, i) => {
+    const from = i * song;
+    const volume = (f) => gain * (fade > 0 ? Math.min(1, Math.max(0, (total - from - f) / fade)) : 1);
+    return <Sequence key={i} name={`Music ${i + 1}/${repeats}`} from={from} durationInFrames={Math.min(song, total - from)} layout="none">
+      <Audio src={staticFile(music.src)} volume={volume} />
+    </Sequence>;
+  });
+};
+
+// Sound effects (a file in public/ or {src, volumeDb, offset}). `sfx` on a screen, overlay or zoom plays at
+// its start, `sfxOut` on a screen as it leaves; `screenSfx: {in, out}` and `zoomSfx` in edit.js are the
+// defaults for every screen and zoom, and `false` on an item silences it. The exit sound starts 0.3 s (the exit
+// transition) before the screen ends. Top-level `sfx` items ({src, start | word | at:"source"}) play anywhere.
+// `offset` (s) shifts a sound, for example -0.1 so a whoosh leads a slide; `volumeDb` defaults to -15.
+const sfxOf = (spec) => typeof spec === "string" ? {src: spec} : spec;
+const pickSfx = (own, fallback) => own === false ? null : own ?? fallback ?? null;
+const sounds = [
+  ...screens.flatMap((s) => [[pickSfx(s.sfx, config.screenSfx?.in), s.start, 0], [pickSfx(s.sfxOut, config.screenSfx?.out), s.end, -0.3]]),
+  ...overlays.map((o) => [pickSfx(o.sfx), o.start, 0]),
+  ...zooms.map((z) => [pickSfx(z.sfx, config.zoomSfx), z.start, 0]),
+].filter(([spec]) => spec).map(([spec, start, lead]) => { const s = sfxOf(spec); return {...s, start, offset: s.offset ?? lead}; })
+  .concat(resolveItems(config.sfx, config, captions));
+const SfxLayer = () => {
+  const {fps, durationInFrames: total} = useVideoConfig();
+  return sounds.map((s, i) => {
+    const from = Math.max(0, toFrame(s.start + (s.offset ?? 0), fps));
+    if (from >= total) return null;
+    return <Sequence key={i} name={`Sfx ${i + 1}: ${s.src}`} from={from} durationInFrames={Math.min(total - from, toFrame(s.seconds ?? 4, fps))} layout="none">
+      <Audio src={staticFile(s.src)} volume={gainOf(s.volumeDb ?? -15)} />
+    </Sequence>;
+  });
+};
+
 // Zoom modes: "punch" (default) jumps in over 2 frames; "push" eases in over `ramp` seconds (0.4).
 // `origin` is the CSS transform-origin; vertical videos default to the face area near the top.
 const zoomAt = (frame, fps) => {
@@ -155,6 +200,8 @@ export const EditedVideo = () => {
         return <Sequence key={i} name={`Screen ${i + 1}: ${item.type ?? "title"}`} from={toFrame(item.start, fps)} durationInFrames={length}><Screen item={item} duration={length} theme={themeInput} /></Sequence>; })}
       {overlays.map((item, i) => { const length = toFrame(item.end, fps) - toFrame(item.start, fps);
         return <Sequence key={i} name={`Overlay ${i + 1}: ${item.type ?? "callout"}`} from={toFrame(item.start, fps)} durationInFrames={length}><Overlay item={item} duration={length} theme={themeInput} /></Sequence>; })}
+      <MusicLayer />
+      <SfxLayer />
       <SafeZones />
     </CaptionZone.Provider>
   </AbsoluteFill>;

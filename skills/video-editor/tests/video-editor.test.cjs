@@ -182,6 +182,42 @@ test("cut.cjs removes a phrase with edges in silence and undoes it", () => {
   assert.equal(kept.clips, 1);
 });
 
+test("music.cjs repeats the song exactly to the end, picks the volume by voice, and validate-edit checks media", () => {
+  const project = path.join(tmp, "music-project"), src = path.join(project, "src"), pub = path.join(project, "public");
+  fs.mkdirSync(src, {recursive: true}); fs.mkdirSync(pub, {recursive: true});
+  makeAudio(path.join(pub, "source.wav"));
+  for (const f of ["timeline.mjs", "components.jsx"]) fs.copyFileSync(path.join(SKILL, "template", f), path.join(src, f));
+  fs.writeFileSync(path.join(src, "captions.js"), "export default " + JSON.stringify(captions) + ";\n");
+  fs.writeFileSync(path.join(src, "edit.js"), "export default " + JSON.stringify({source: "source.wav", width: 720, height: 1280, fps: 30, clips: [{start: 0, end: 4.9}]}) + ";\n");
+  const song = path.join(tmp, "song 2s.wav");
+  execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=330:duration=2", song]);
+  const music = (...args) => spawnSync(process.execPath, [path.join(SKILL, "scripts", "music.cjs"), project, ...args], {encoding: "utf8"});
+  const auto = music(song);
+  assert.equal(auto.status, 0, auto.stderr);
+  const result = JSON.parse(auto.stdout);
+  // 4.9 s of edit with a 2 s song: 3 repetitions, the last one cut at 0.9 s, never past the end.
+  assert.deepEqual([result.repeats, result.lastRepeatSeconds, result.voice, result.music.volumeDb, result.music.src], [3, 0.9, true, -40, "audio/music/song-2s.wav"]);
+  assert.ok(fs.existsSync(path.join(pub, "audio", "music", "song-2s.wav")));
+  assert.equal(JSON.parse(music(song, "--no-voice", "--dry-run").stdout).music.volumeDb, -5);
+  assert.equal(JSON.parse(music(song, "--db=-20", "--dry-run").stdout).music.volumeDb, -20);
+  const validate = () => spawnSync(process.execPath, [path.join(SKILL, "scripts", "validate-edit.cjs"), project], {encoding: "utf8"});
+  let check = validate();
+  assert.equal(check.status, 0, check.stderr);
+  assert.deepEqual(JSON.parse(check.stdout).music, {src: "audio/music/song-2s.wav", volumeDb: -40, repeats: 3});
+  // A missing sound effect or image is an error, not a silent gap in the render.
+  const file = path.join(src, "edit.js"), edit = JSON.parse(fs.readFileSync(file, "utf8").replace(/^export default /, "").replace(/;\s*$/, ""));
+  fs.writeFileSync(file, "export default " + JSON.stringify({...edit, sfx: [{src: "audio/sfx/nope.wav", start: 1}], screenSfx: {out: "audio/sfx/out.wav"},
+    overlays: [{start: 0.5, end: 3.5, type: "image", src: "images/nope.jpg"}]}) + ";\n");
+  check = validate();
+  assert.equal(check.status, 1);
+  const errors = JSON.parse(check.stdout).errors.join("\n");
+  assert.match(errors, /sfx\[0\]: audio\/sfx\/nope\.wav is missing/);
+  assert.match(errors, /overlays\[0\] \(image\): images\/nope\.jpg is missing/);
+  assert.match(errors, /screenSfx\.out: audio\/sfx\/out\.wav is missing/);
+  assert.equal(music("--remove").status, 0);
+  assert.ok(!/"music"/.test(fs.readFileSync(file, "utf8")));
+});
+
 test("captions.cjs replaces a window with medium words, fixes names and undoes it", () => {
   const project = path.join(tmp, "captions-project"), src = path.join(project, "src");
   fs.mkdirSync(src, {recursive: true});

@@ -187,7 +187,26 @@ const Ticker = ({label="Live", text="", color="#e11d2e", speed=1, position="bott
   </div>;
 };
 
-export const OVERLAYS = {callout:Callout, lowerThird:LowerThird, alert:Alert, notification:Notification, icon:IconPop, badge:Badge, counter:Counter, cta:Cta, sidePanel:SidePanel, ticker:Ticker};
+// Photo card next to the speaker: a person, a company logo, a product. `src` is a file in public/
+// (scripts/find-image.cjs saves to images/) or a data:/http(s): URL; `fit` "cover" (photos) or "contain" (logos).
+const ImageCard = ({src, title, subtitle, credit, shape="rounded", fit="cover", size=34, position="top-right", color, theme, duration}) => {
+  const {frame, fps, exit}=useLife(duration); const u=useUnit();
+  if (!src) throw new Error(`Overlay "image" needs a src (file in public/ or URL)`);
+  const url=/^(https?:|data:)/.test(src) ? src : staticFile(src);
+  const s=pop(frame,fps), c=color??theme.accent, side=u*size, round=shape==="circle";
+  return <Place position={position}><div style={{display:"flex", flexDirection:"column", alignItems:"center", gap:u*1.6, opacity:exit, transform:`scale(${s})`}}>
+    <div style={{width:side, height:side, borderRadius:round?"50%":u*2.4, overflow:"hidden", border:`${u*0.7}px solid ${c}`, background:fit==="contain"?"#ffffff":"#000", boxShadow:"0 12px 32px rgba(0,0,0,.45)", position:"relative"}}>
+      <Img src={url} style={{width:"100%", height:"100%", objectFit:fit, padding:fit==="contain"?u*2:0, boxSizing:"border-box", transform:`scale(${interpolate(frame,[0,Math.max(1,duration)],[1,1.06],clamp)})`}}/>
+      {credit && <div style={{position:"absolute", left:0, right:0, bottom:0, padding:`${u*0.5}px ${u*1}px`, background:"rgba(0,0,0,.55)", color:"rgba(255,255,255,.85)", font:`600 ${u*1.9}px ${theme.font}`, textAlign:"center", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{credit}</div>}
+    </div>
+    {(title || subtitle) && <div style={{background:"rgba(10,15,30,.88)", borderRadius:u*1.4, padding:`${u*1}px ${u*2.4}px`, textAlign:"center", fontFamily:theme.font, color:OVERLAY_TEXT, maxWidth:side*1.4, ...rise(frame,fps,u,0.15,3)}}>
+      {title && <div style={{fontWeight:800, fontSize:u*4.2}}>{title}</div>}
+      {subtitle && <div style={{color:OVERLAY_MUTED, fontWeight:600, fontSize:u*3, marginTop:u*0.4}}>{subtitle}</div>}
+    </div>}
+  </div></Place>;
+};
+
+export const OVERLAYS = {callout:Callout, lowerThird:LowerThird, alert:Alert, notification:Notification, icon:IconPop, badge:Badge, counter:Counter, cta:Cta, sidePanel:SidePanel, ticker:Ticker, image:ImageCard};
 
 // ---------- Full-screen screens (replace the picture; speech audio continues) ----------
 // Shared theme styling: panels (list rows, compare panels), headings and shadows.
@@ -455,7 +474,7 @@ const pick = (registry, kind, type) => {
   return Component;
 };
 export const Overlay = ({item, duration, theme}) => {
-  const {start, end, type="callout", theme:own, at, word, occurrence, offset, endWord, endOccurrence, ...props}=item;
+  const {start, end, type="callout", theme:own, at, word, occurrence, offset, endWord, endOccurrence, sfx, ...props}=item;
   const Component=pick(OVERLAYS,"overlay",type);
   return <Component {...props} duration={duration} theme={resolveTheme({...theme, ...own})}/>;
 };
@@ -463,7 +482,7 @@ export const Overlay = ({item, duration, theme}) => {
 // (scales down into place); 0.3 s for the motion ones. The exit mirrors the entrance.
 const TRANSITIONS = ["fade","slide","wipe","zoom"];
 export const Screen = ({item, duration, theme}) => {
-  const {start, end, type="title", theme:own, transition="fade", at, word, occurrence, offset, endWord, endOccurrence, ...props}=item;
+  const {start, end, type="title", theme:own, transition="fade", at, word, occurrence, offset, endWord, endOccurrence, sfx, sfxOut, ...props}=item;
   const Component=pick(SCREENS,"screen",type);
   if (!TRANSITIONS.includes(transition)) throw new Error(`Unknown transition "${transition}". Available: ${TRANSITIONS.join(", ")}`);
   const frame=useCurrentFrame(); const {fps}=useVideoConfig();
@@ -478,6 +497,8 @@ export const Screen = ({item, duration, theme}) => {
 };
 
 // ---------- Gallery composition: preview of every component in Studio ----------
+// Inline placeholder portrait, so the gallery needs no file in public/.
+const GALLERY_PORTRAIT = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#3b4a66"/><circle cx="50" cy="38" r="18" fill="#c8d2e6"/><path d="M14 100c4-24 18-34 36-34s32 10 36 34z" fill="#c8d2e6"/></svg>');
 export const galleryItems = [
   {kind:"overlay", item:{type:"callout", text:"Key point from the video"}},
   {kind:"overlay", item:{type:"lowerThird", title:"Jane Doe", subtitle:"Role or channel"}},
@@ -490,6 +511,7 @@ export const galleryItems = [
   {kind:"overlay", item:{type:"badge", text:"New", icon:"star"}},
   {kind:"overlay", item:{type:"counter", value:1250000, prefix:"$", label:"Announced investment"}},
   {kind:"overlay", item:{type:"cta"}},
+  {kind:"overlay", item:{type:"image", src:GALLERY_PORTRAIT, title:"Jane Doe", subtitle:"CEO, Example Corp", credit:"Placeholder image"}},
   {kind:"screen", item:{type:"title", kicker:"Special chapter", text:"The race for AI infrastructure", subtitle:"What changes in 2026"}},
   {kind:"screen", item:{type:"chapter", number:2, title:"How it works", subtitle:"Step by step"}},
   {kind:"screen", item:{type:"quote", quote:"The best way to predict the future is to invent it.", author:"Alan Kay"}},
