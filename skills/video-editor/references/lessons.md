@@ -26,6 +26,37 @@ Noise floor: on `clip-b.mp4` pauses peaked at −33 dB (breath and room tone) wh
 - Rebuilding captions with a fixed overlap threshold dropped a real two-letter word that sat inside a clip; `min(0.05 s, word length)` kept it. The template now applies that rule at runtime (`keptCaptions` in `timeline.mjs`).
 - Comparing word start times against clip starts drops words that start a few milliseconds before the clip and are still fully spoken.
 
+## Studio drops audio at clip joins (4K source, 62-clip edit)
+
+Symptom the user reports: while reviewing in Studio, the audio cuts out for a fraction of a second at random moments, and it is impossible to tell a real bad cut from a preview glitch. Renders never show it.
+
+Measured by hooking `AudioBufferSourceNode.prototype.start` in the Studio page and summing the gaps between consecutive scheduled ranges, playing 30 s from frame 0 on every cold page load:
+
+| Variant | Dropped audio per 30 s |
+|---|---|
+| 62-clip edit, one player per clip (original) | 1600-2043 ms |
+| Same edit, `premountFor` 3 s instead of 1 s | 0-719 ms, still glitches |
+| Same edit, muted `<Video>` + separate `<Audio>` per clip | 2043 ms |
+| Same edit, single continuous preview track | **0-107 ms, three cold runs** |
+| 20-clip test edit, composition at 30 fps vs 60 fps | both clean |
+| 20-clip test edit, composition 480 px vs 2160 px | both clean |
+| Audio-only composition | never dropped |
+
+What the data says:
+
+- The drops land on joins, not at random: 550-725 ms right after a cut, sometimes followed by 50-200 ms holes.
+- At every drop the scheduling lead (`when - audioContext.currentTime` passed to `start`) fell to **0.000 s**; the rest of the time it stayed near 2 s. The audio scheduler ran out of buffer because the new clip's audio seek was not ready.
+- No `longtask` entries during the drops and rAF stayed at 47-60 fps, so the main thread was not blocked and the machine was not short of CPU.
+- `premountFor` alone does not fix it: premounting the video player does not premount that player's audio seek.
+- Splitting video and audio into two players does not fix it either; the seek still happens per clip.
+- Composition fps and size are not causes. A clean 1-clip project at 60 fps glitched once in one run and not in others, which is why the bug looked intermittent: it depends on whether the seek wins the race.
+
+Fix now enforced by the template: `scripts/preview-audio.cjs` concatenates the kept clips into one `public/preview-audio.wav` (same FFmpeg `atrim`+`concat` graph `export.cjs` uses for the render audio), `edit.js` carries `previewAudio`, and `Video.jsx` plays the clips muted plus that single `<Audio>` in Studio only. No seek at the joins, nothing to race.
+
+Sync check: 9701 frames at 60 fps = 161.683 s and the built track measured 161.6833 s, 0.0003 s apart. The script refuses to write a track that differs from the edit by more than half a frame, so a wrong `fps` or a stale `edit.js` fails loudly instead of drifting silently.
+
+Rebuild cost on the 62-clip, 161.7 s edit: about 1 s of FFmpeg and a 31 MB WAV, so `cut.cjs` rebuilds it on every cut and undo.
+
 ## Visual budget
 
 A 175.3 s edit shipped with 5 overlays (`callout`, `badge`, `alert`, `icon`, `cta`) and the user asked for fewer. Screens carry the information; overlays are kept for 1–2 moments per video.

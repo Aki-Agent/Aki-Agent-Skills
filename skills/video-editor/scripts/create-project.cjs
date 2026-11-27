@@ -8,8 +8,21 @@ const {execFileSync, spawnSync} = require("node:child_process");
 const REMOTION = "4.0.546";
 const DEPENDENCIES = {"@remotion/cli":REMOTION, "@remotion/media":REMOTION, "@remotion/captions":REMOTION, remotion:REMOTION, react:"19.2.0", "react-dom":"19.2.0"};
 const TEMPLATE_FILES = ["index.jsx", "Video.jsx", "components.jsx", "timeline.mjs", "themes.mjs"];
+const PREVIEW_AUDIO = "preview-audio.wav";
 
 const log = (message) => process.stderr.write(message + "\n");
+
+// Studio preview audio: one continuous track built from the clips with FFmpeg, exactly like the render
+// concatenates them. Studio plays this single stream instead of one audio player per clip, so there is
+// no seek at each join. Measured on a 62-clip edit: 1600-2043 ms of dropped audio per 30 s before,
+// 0-107 ms after (three cold runs each). See scripts/preview-audio.cjs.
+const buildPreviewAudio = (projectDir, sourceName) => {
+  const modulePath = path.join(__dirname, "preview-audio.cjs");
+  const args = [modulePath, projectDir, ...(sourceName ? [`--source=${sourceName}`] : [])];
+  const run = spawnSync(process.execPath, args, {encoding:"utf8"});
+  if (run.status !== 0) throw new Error("Preview audio failed: " + ((run.stderr || "").trim() || run.error?.message || "unknown error"));
+  return PREVIEW_AUDIO;
+};
 
 // Hardlink the source when possible (instant, no extra disk); copy across drives or on refusal.
 const linkOrCopy = (from, to, forceCopy) => {
@@ -97,7 +110,7 @@ try {
   const {modules, ...deps} = ensureDependencies(depsDir, !flags.has("no-install"), minutes);
   const template = path.resolve(__dirname, "../template");
   const ext = path.extname(source).toLowerCase() || ".mp4";
-  const config = {source:"source"+ext, ...(wantProxy ? {proxy:"proxy.mp4"} : {}), width:video.width, height:video.height, fps, clips:[{start:0,end:Math.floor(duration*fps)/fps}], zooms:[], overlays:[], screens:[]};
+  const config = {source:"source"+ext, ...(wantProxy ? {proxy:"proxy.mp4"} : {}), width:video.width, height:video.height, fps, clips:[{start:0,end:Math.floor(duration*fps)/fps}], previewAudio:PREVIEW_AUDIO, zooms:[], overlays:[], screens:[]};
   fs.mkdirSync(path.join(target,"src"),{recursive:true});
   fs.mkdirSync(path.join(target,"public"),{recursive:true});
   const sourceMode = linkOrCopy(source, path.join(target,"public",config.source), flags.has("copy"));
@@ -114,11 +127,14 @@ try {
   }
   fs.writeFileSync(path.join(target,"src","edit.js"),"export default "+JSON.stringify(config,null,2)+";\n");
   fs.writeFileSync(path.join(target,"src","captions.js"),"export default "+JSON.stringify(captions)+";\n");
+  // Studio preview audio: one continuous track built from the clips (see scripts/preview-audio.cjs).
+  // Without it Studio drops 0.1-0.7 s of sound at every join while it seeks inside the media file.
+  const previewAudio = buildPreviewAudio(target);
   const pkg={name:"remotion-video-project",private:true,version:"1.0.0",dependencies:DEPENDENCIES};
   fs.writeFileSync(path.join(target,"package.json"),JSON.stringify(pkg,null,2)+"\n");
   if (modules) fs.symlinkSync(modules, path.join(target, "node_modules"), "junction");
   const result = {project:target, width:video.width, height:video.height, fps, duration, words:captions.length,
-    source:sourceMode, proxy:wantProxy ? config.proxy : null, proxySeconds, dependencies:deps};
+    source:sourceMode, proxy:wantProxy ? config.proxy : null, proxySeconds, previewAudio, dependencies:deps};
   log(`Project ${target}: ${video.width}x${video.height} @ ${Math.round(fps*1000)/1000} fps, ${duration.toFixed(2)} s, ${captions.length} words; source ${sourceMode}`
     + (wantProxy ? `; proxy in ${proxySeconds} s` : "") + `; dependencies ${deps.status}` + (deps.status === "skipped" ? " (run npm install in the project)" : ""));
   console.log(JSON.stringify(result,null,2));

@@ -73,6 +73,9 @@ try {
     fs.copyFileSync(last, editFile);
     fs.unlinkSync(last);
     const clips = readModule(editFile).clips;
+    // Undo changes the clips too, so the Studio preview audio must follow (see preview-audio.cjs).
+    const preview = spawnSync(process.execPath, [path.join(__dirname, "preview-audio.cjs"), project], {encoding: "utf8"});
+    if (preview.status !== 0) throw new Error("Preview audio rebuild failed: " + ((preview.stderr || "").trim() || "unknown error"));
     log(`Restored ${saved[saved.length - 1]}: ${clips.length} clips, ${round(clips.reduce((s, c) => s + c.end - c.start, 0))} s`);
     process.exit(0);
   }
@@ -131,6 +134,11 @@ try {
     const n = fs.readdirSync(historyDir).filter((f) => /^edit-\d+\.js$/.test(f)).length + 1;
     fs.copyFileSync(editFile, path.join(historyDir, `edit-${String(n).padStart(3, "0")}.js`));
     fs.writeFileSync(editFile, "export default " + JSON.stringify({...edit, clips}, null, 2) + ";\n");
+    // The Studio preview plays one continuous audio file built from the clips, so every cut must
+    // rebuild it. Without this the preview keeps the previous edit's audio (see preview-audio.cjs).
+    const preview = spawnSync(process.execPath, [path.join(__dirname, "preview-audio.cjs"), project], {encoding: "utf8"});
+    if (preview.status !== 0) throw new Error("Preview audio rebuild failed: " + ((preview.stderr || "").trim() || "unknown error"));
+    report.previewAudio = "rebuilt";
   }
   log(`${flags.has("dry-run") ? "Dry run: " : ""}${report.before} s -> ${report.after} s, ${removedWords.length} words removed: ${removedWords.map((w) => w.word).join(" ")}`);
   for (const c of report.cuts) if (c.edgesBelowGate === false) log(`  warning: ${c.spec} edge above ${gate} dB (${c.edgesDb.join(", ")}); check the join by ear`);

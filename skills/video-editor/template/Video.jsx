@@ -91,6 +91,15 @@ const CaptionLayer = () => {
 // `joinFadeFrames` (default 1) lowers the volume on the frames next to each internal join to
 // soften residual clicks. Remotion applies volume per frame, so the resolution is one frame.
 const joinFade = config.joinFadeFrames ?? 1;
+
+// Studio preview audio. Each clip is its own player, so at every join Studio has to seek inside the
+// media file; when that seek is not ready it drops 0.1-0.7 s of sound (renders wait for every frame
+// and are not affected). Playing one pre-joined audio file removes the seek: on a 62-clip edit the
+// dropped audio went from 1600-2043 ms per 30 s to 0-107 ms. `scripts/preview-audio.cjs` writes that
+// file and stores its name as `previewAudio` in edit.js; create-project.cjs and cut.cjs rebuild it.
+// Without `previewAudio` (older projects) the clips keep their own audio, so nothing breaks.
+const useSplitAudio = Boolean(config.previewAudio) && getRemotionEnvironment().isStudio;
+
 const Clip = ({index, start, length}) => {
   const src = staticFile(useProxySource() ? config.proxy : config.source);
   const volume = (f) => {
@@ -100,8 +109,14 @@ const Clip = ({index, start, length}) => {
     return v;
   };
   return <AbsoluteFill>
-    <Video src={src} trimBefore={start} volume={volume} objectFit="cover" style={{width:"100%", height:"100%"}} />
+    <Video src={src} trimBefore={start} muted={useSplitAudio} volume={useSplitAudio ? undefined : volume} objectFit="cover" style={{width:"100%", height:"100%"}} />
   </AbsoluteFill>;
+};
+
+// The single continuous track the preview plays. Renders never mount it: they use each clip's audio.
+const PreviewAudio = () => {
+  if (!useSplitAudio) return null;
+  return <Audio src={staticFile(config.previewAudio)} volume={1} />;
 };
 
 const gainOf = (db) => Math.pow(10, db / 20);
@@ -210,6 +225,7 @@ export const EditedVideo = () => {
         return <Sequence key={i} name={`Screen ${i + 1}: ${item.type ?? "title"}`} from={toFrame(item.start, fps)} durationInFrames={length}><Screen item={item} duration={length} theme={themeInput} /></Sequence>; })}
       {overlays.map((item, i) => { const length = toFrame(item.end, fps) - toFrame(item.start, fps);
         return <Sequence key={i} name={`Overlay ${i + 1}: ${item.type ?? "callout"}`} from={toFrame(item.start, fps)} durationInFrames={length}><Overlay item={item} duration={length} theme={themeInput} /></Sequence>; })}
+      <PreviewAudio />
       <MusicLayer />
       <SfxLayer />
       <SafeZones />

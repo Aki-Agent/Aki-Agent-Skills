@@ -227,6 +227,7 @@ node <SKILL_DIR>/scripts/create-project.cjs "<VIDEO>" "<WORK_DIR>/project" "<WOR
 | Source in `public/` | hardlink (instant, no extra disk; the file is not modified) | `--copy`; falls back to a copy across drives |
 | Proxy `public/proxy.mp4` | created when the short side is above 1080 px or fps above 30: short side 480 px, 30 fps, CRF 28, `-tune fastdecode`, keyframe every second, AAC 128k | `--proxy`, `--no-proxy`, `--proxy-size=<even px>` (for example 720 for a sharper preview) |
 | Dependencies | `node_modules` is a junction to one shared install in `<WORK_DIR parent>/.cache/video-editor/remotion-4.0.546`, installed on first use | `--deps=<DIR with node_modules>`, `--no-install`, `--install-timeout=<min>` |
+| Preview audio `public/preview-audio.wav` | always built from the clips in one FFmpeg pass; the preview plays this single track instead of one audio player per clip | never disable it; rebuild with `scripts/preview-audio.cjs <PROJECT_DIR>` |
 
 The target directory must not exist. The transcript must belong to this exact source and contain `segments[].words[]` with `word`, `start`, `end` in seconds. Dependencies are resolved before the project folder is created, so a failed install leaves nothing behind. The first shared install uses `npm`; if npm is a broken Corepack shim it retries with `npx --yes npm@10.9.2`; each attempt stops after `--install-timeout` minutes (10) and both real errors are reported. Measured here: the Corepack shim failed with `unable to verify the first certificate` and the fallback did not reach the registry in 5 minutes either, so the first install was not verified end to end; reuse (`--deps` pointing at an installed project) was. If npm cannot validate the registry certificate, use the system's trusted certificates; never disable TLS verification.
 
@@ -238,13 +239,24 @@ Start-Process -FilePath "powershell" -WorkingDirectory "<WORK_DIR>/project" -Arg
 
 `npx.cmd` avoids PowerShell's execution-policy problem with `npx.ps1`. Do not start a duplicate server for a running project; pick a free port for a second one. Open `http://localhost:3333/EditedVideo` in the harness's integrated browser and **activate the tab**. Studio plays `proxy.mp4` (check the network entries: only the proxy is requested); renders use the original. Studio listened on all network interfaces here; do not assume the media is private from other network clients.
 
-**Choppy audio in Studio only** (renders are not affected, they wait for every frame): each clip is its own `<Video>` player, and a player that is not premounted starts decoding on the frame of its cut, so chunks near the join are dropped. Clip sequences use `premountFor` (1 s). Measured by hooking `AudioBufferSourceNode.start` while playing the 11-clip sample: without premount, a fresh page (720 px proxy) dropped 4 × 21 ms at joins and a warm run (480 px) lost the whole last clip (6.5 s silent from its join); with premount, a warm run had no holes at joins. The first play after a cache-bypassing reload still dropped 1 s in 11 holes, so play once before judging the audio. Also keep the Studio tab in the foreground (background tabs are throttled), check that the network entries show `proxy.mp4` and not the source, and for a project created before the 480 px default rebuild the proxy in place:
+**Hard rule: the Studio preview always plays one continuous audio track.** Studio glitches its audio at clip joins; renders never do. Every project must therefore ship `public/preview-audio.wav` (built from the same clips in one FFmpeg pass) and `template/Video.jsx` must play it: the clips render as `<Video muted>` and a single `<Audio>` plays the joined track. Do not replace this with one audio player per clip, do not rely on `premountFor` alone, and do not "fix" a choppy preview by raising `premountFor` or shrinking the proxy. Both were measured and did not work.
+
+Why: each clip is its own player, so at every join Studio has to seek inside the media file. When that seek is not ready it schedules the next audio chunk with no lead time and drops the sound. Measured on a 62-clip edit (2160x3840, 60 fps, 480 px proxy) by hooking `AudioBufferSourceNode.start`: **1600-2043 ms of dropped audio per 30 s** with per-clip audio, `0-107 ms` with the single continuous track, three cold runs each. The scheduler lead fell to 0.000 s exactly at the drops. Ruled out as causes: composition fps (30 vs 60), composition size (480 vs 2160 px), proxy quality, `premountFor` 1 s vs 3 s, muted video plus a separate `<Audio>` per clip, and main-thread stalls (no long tasks during the drops). Audio-only playback never dropped.
+
+Rules that follow:
+
+- `scripts/preview-audio.cjs` builds the track; `create-project.cjs` runs it when the project is created, and `cut.cjs` re-runs it after every cut and undo. Never edit `edit.js` clips by hand without rebuilding it: the preview would keep the previous edit's audio.
+- The track must match the edit within half a frame; the script refuses to write it otherwise (measured: 161.683 s of audio for 9701 frames at 60 fps, 0.0003 s apart).
+- Renders are unaffected: `previewAudio` is only mounted in Studio, so `export.cjs` keeps using each clip's own audio.
+- Do not test the preview audio by default; the fix above is already in place and this is not part of the normal workflow. Only when the user reports audio cuts in Studio, verify that the fix is actually applied: `previewAudio` present in `src/edit.js`, `public/preview-audio.wav` matching the edit, and the clips muted in `src/Video.jsx`. If any of the three is missing (a project created before this rule), rebuild as described above. Measuring is the last resort, not the first step: hook `AudioBufferSourceNode.prototype.start`, play 30 s from frame 0, and check that no two scheduled ranges leave a gap above 60 ms, on a cold play (a cache-bypassing reload glitches most).
+
+Keep the Studio tab in the foreground (background tabs are throttled) and check that the network entries show `proxy.mp4` and not the source. For a project created before this rule, rebuild in place:
 
 ```powershell
-ffmpeg -y -i public/source.mp4 -vf "scale=480:-2" -r 30 -c:v libx264 -preset veryfast -tune fastdecode -crf 28 -g 30 -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart public/proxy.mp4
+node <SKILL_DIR>/scripts/preview-audio.cjs "<WORK_DIR>/project"
 ```
 
-Use `scale=-2:480` for horizontal video, and add `proxy: "proxy.mp4"` to `edit.js` if the project had no proxy.
+then add `previewAudio: "preview-audio.wav"` to `src/edit.js` and copy the current `template/Video.jsx` over `src/Video.jsx`.
 
 ## 4. The edit plan (`src/edit.js`)
 
