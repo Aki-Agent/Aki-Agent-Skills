@@ -465,7 +465,27 @@ const ImageScreen = ({src, fit="cover", title, caption, credit, kenBurns=true, t
   </AbsoluteFill>;
 };
 
-export const SCREENS = {title:TitleScreen, chapter:ChapterScreen, quote:QuoteScreen, list:ListScreen, stat:StatScreen, compare:CompareScreen, kinetic:KineticScreen, breaking:BreakingScreen, split:SplitScreen, timeline:TimelineScreen, image:ImageScreen};
+// Closing card: full-frame plate with a logo, a name beside it and a small credit line below.
+// Use it as the last screen of the edit. `logo` is a file in public/ (a transparent PNG works best;
+// `null` draws no logo); `name` and `tagline` are plain strings. The text uses Inter when the project
+// ships it in public/fonts/ (Video.jsx loads it) and falls back to the theme font otherwise.
+const EndCardScreen = ({logo="aki-logo.png", name="Aki Agent", tagline="", background="#1d2348", font, theme}) => {
+  const frame=useCurrentFrame(); const {fps, width}=useVideoConfig(); const u=useUnit();
+  const family=font ?? `Inter, ${theme.font}`;
+  const a=rise(frame,fps,u,0), b=rise(frame,fps,u,0.15), c=rise(frame,fps,u,0.5);
+  const glow=interpolate(frame,[0,Math.round(0.8*fps)],[0.75,1],{...clamp, easing:Easing.out(Easing.cubic)});
+  return <AbsoluteFill style={{background, fontFamily:family, color:"#ffffff", justifyContent:"center", alignItems:"center", padding:"10% 8%", boxSizing:"border-box", textAlign:"center"}}>
+    <div style={{position:"absolute", inset:0, background:"radial-gradient(ellipse at 50% 46%, rgba(255,255,255,.10) 0%, rgba(255,255,255,.03) 38%, transparent 66%)", transform:`scale(${glow})`}}/>
+    <div style={{display:"flex", flexDirection:"row", alignItems:"center", justifyContent:"center", gap:u*3.2}}>
+      {logo && <Img src={staticFile(logo)} style={{height:u*20, width:"auto", objectFit:"contain", filter:"drop-shadow(0 10px 28px rgba(0,0,0,.45))", ...a}}/>}
+      <div style={{...b, fontFamily:family, fontWeight:800, fontSize:fitSize(name,u*9.6,width,0.62), lineHeight:1.05, color:"#ffffff", whiteSpace:"nowrap", letterSpacing:"-0.02em"}}>{name}</div>
+    </div>
+    {tagline && <div style={{...c, fontFamily:family, marginTop:u*4.2, color:"#ffffff", fontWeight:500, lineHeight:1.45, whiteSpace:"nowrap",
+      fontSize:Math.min(u*3.1, (width*0.84)/(Math.max(1,tagline.length)*0.5))}}>{tagline}</div>}
+  </AbsoluteFill>;
+};
+
+export const SCREENS = {title:TitleScreen, chapter:ChapterScreen, quote:QuoteScreen, list:ListScreen, stat:StatScreen, compare:CompareScreen, kinetic:KineticScreen, breaking:BreakingScreen, split:SplitScreen, timeline:TimelineScreen, image:ImageScreen, endcard:EndCardScreen};
 
 // Dispatchers used by Video.jsx; `duration` is the item length in frames. Unknown types fail loudly in Studio.
 const pick = (registry, kind, type) => {

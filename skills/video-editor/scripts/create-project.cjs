@@ -105,6 +105,13 @@ try {
   if (wantProxy) makeProxy(source, path.join(target,"public",config.proxy), video.width, video.height, proxySize);
   const proxySeconds = wantProxy ? Math.round((Date.now() - started) / 100) / 10 : null;
   for (const file of TEMPLATE_FILES) fs.copyFileSync(path.join(template,file),path.join(target,"src",file));
+  // Brand assets used by the `endcard` closing screen: the Aki logo and Inter. Copied only when the
+  // project does not ship its own copy, so a custom logo in public/ is never overwritten.
+  fs.mkdirSync(path.join(target,"public","fonts"),{recursive:true});
+  for (const [from,to] of [["aki-logo.png","aki-logo.png"],["Inter-Variable.ttf","fonts/Inter-Variable.ttf"]]) {
+    const dest = path.join(target,"public",to);
+    if (!fs.existsSync(dest)) fs.copyFileSync(path.join(template,"assets",from),dest);
+  }
   fs.writeFileSync(path.join(target,"src","edit.js"),"export default "+JSON.stringify(config,null,2)+";\n");
   fs.writeFileSync(path.join(target,"src","captions.js"),"export default "+JSON.stringify(captions)+";\n");
   const pkg={name:"remotion-video-project",private:true,version:"1.0.0",dependencies:DEPENDENCIES};

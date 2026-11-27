@@ -28,6 +28,16 @@ const pages = limitPageWords(createTikTokStyleCaptions({captions, combineTokensW
   config.captionsMaxWords ?? (vertical ? 4 : 6));
 const captionsMode = config.captionsPosition ?? (vertical ? "center" : "bottom");
 
+// Brand font for the `endcard` closing screen, loaded from public/ (no network). If the file is
+// missing the card falls back to the theme font instead of failing the render.
+const END_CARD_FONT = "Inter";
+if (config.endCardFont !== false) {
+  const handle = delayRender("Loading Inter");
+  new FontFace(END_CARD_FONT, `url(${staticFile("fonts/Inter-Variable.ttf")})`).load()
+    .then((face) => { document.fonts.add(face); continueRender(handle); })
+    .catch(() => continueRender(handle));
+}
+
 // Optional local font in public/ (for example "fonts/Inter-Bold.ttf"); no network is used.
 const FONT_FAMILY = "EditFont";
 if (config.fontFile) {

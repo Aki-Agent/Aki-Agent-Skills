@@ -414,6 +414,7 @@ Preview everything in the `Gallery` composition (`/Gallery`, project size) and `
 | `image` | Photo of the news/person or a screenshot, slow Ken Burns push | `src` (file in `public/` or URL), `fit` (`cover`; `contain` adds a blurred fill), `title`, `caption`, `credit`, `kenBurns` (true) |
 | `split` | Horizontal-first: text on one half, icon or counting figure on the other | `kicker`, `title`, `text`, `icon` (`bulb`) or `value` + `prefix`/`suffix`/`decimals`/`locale`, `label`, `side` (`left`), `color` |
 | `timeline` | Horizontal-first: numbered steps on a growing line | `title`, `steps[]` (strings or `{label, text}`), `color` |
+| `endcard` | Closing card: logo, channel name beside it and a small credit line, on a solid plate. For the end of the video | `logo` (`aki-logo.png` in `public/`; `null` draws none), `name` (`Aki Agent`), `tagline`, `background` (`#1d2348`), `font` (Inter) |
 
 In horizontal video, place `sidePanel` opposite the speaker and keep `ticker` to 5–10 s. Large titles (`title`, `chapter`, `breaking`, `stat`, `split`, `kinetic`) shrink so the longest word fits the frame; still check very long titles.
 
