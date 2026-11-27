@@ -8,19 +8,22 @@
 // Playing one pre-joined audio file removes the seek entirely. Measured on a 62-clip edit:
 // 1600-2043 ms of dropped audio per 30 s before, 0-107 ms after, three cold runs each.
 //
-// The output is written to public/<previewAudio> and its name is stored in src/edit.js as
-// `previewAudio`, so template/Video.jsx picks it up. It is rebuilt by create-project.cjs and
-// by cut.cjs after every cut, and it is only used in Studio: renders keep the original audio.
+// The output mixes the edited voice, music and effects into public/<previewAudio>. It is rebuilt
+// by create-project.cjs, auto-edit.cjs, cut.cjs and music.cjs, and is only used in Studio.
+// Renders keep their original audio layers.
 const fs = require("node:fs");
 const path = require("node:path");
 const {spawnSync} = require("node:child_process");
+const vm = require("node:vm");
+const {pathToFileURL} = require("node:url");
 
 const log = (message) => process.stderr.write(message + "\n");
 const DEFAULT_NAME = "preview-audio.wav";
 
-// Reads src/edit.js (JSON written by the scripts) without importing it.
-const readEdit = (project) => JSON.parse(fs.readFileSync(path.join(project, "src", "edit.js"), "utf8")
-  .replace(/^\s*export\s+default\s+/, "").replace(/;\s*$/, ""));
+// Read project modules without importing them.
+const readModule = (file) => vm.runInNewContext("(" + fs.readFileSync(file, "utf8")
+  .replace(/^\s*export\s+default\s+/, "").replace(/;\s*$/, "") + ")");
+const readEdit = (project) => readModule(path.join(project, "src", "edit.js"));
 
 const probeDuration = (file) => {
   const out = spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "json", file], {encoding: "utf8"});
@@ -28,8 +31,12 @@ const probeDuration = (file) => {
   return Number(parsed.format?.duration);
 };
 
-const build = (project, options = {}) => {
+const build = async (project, options = {}) => {
   const edit = readEdit(project);
+  const timeline = await import(pathToFileURL(path.join(__dirname, "../template/timeline.mjs")).href);
+  const captionsFile = path.join(project, "src", "captions.js");
+  const captions = fs.existsSync(captionsFile) ? timeline.keptCaptions(readModule(captionsFile), edit) : [];
+  const sounds = timeline.resolveSounds(edit, captions);
   const fps = Number(edit.fps);
   const clips = edit.clips || [];
   if (!fps || !clips.length) throw new Error("edit.js has no fps or no clips");
@@ -67,14 +74,47 @@ const build = (project, options = {}) => {
     throw new Error(`Joined preview audio is ${natural.toFixed(3)} s but the edit is ${expected.toFixed(3)} s: clips overlap or fps is wrong`);
   }
 
-  // Pass 2: pad a short tail with silence and cut a long one, so the track matches the edit exactly.
-  const fix = spawnSync("ffmpeg", ["-v", "error", "-y", "-i", joined, "-af",
-    `apad=whole_dur=${expected.toFixed(6)},atrim=start=0:end=${expected.toFixed(6)}`,
-    "-c:a", "pcm_s16le", output], {encoding: "utf8"});
+  // Mix the voice, repeated music, and all resolved effects into one Studio audio stream.
+  // Frame rounding and effect placement match Video.jsx. The render still plays its own layers.
+  const rate = 48000, totalFrames = Math.round(expected * fps);
+  const inputs = ["-i", joined], mix = [
+    `[0:a]aresample=${rate},aformat=channel_layouts=stereo,apad=whole_dur=${expected.toFixed(6)},atrim=duration=${expected.toFixed(6)}[voice]`
+  ], labels = ["[voice]"];
+  const addInput = (src) => {
+    const file = path.join(project, "public", src);
+    if (!fs.existsSync(file)) throw new Error("Audio file not found: " + file);
+    const index = inputs.length / 2;
+    inputs.push("-i", file);
+    return index;
+  };
+  if (edit.music) {
+    const music = edit.music, index = addInput(music.src);
+    const songFrames = Math.max(1, Math.floor(music.duration * fps));
+    const songSeconds = songFrames / fps, fadeFrames = timeline.toFrame(music.fadeOut ?? 1, fps);
+    if (!Number.isFinite(songSeconds) || !Number.isFinite(fadeFrames)) throw new Error("Invalid music duration or fade");
+    const fade = fadeFrames > 0 ? `,volume=${Math.min(1, totalFrames / fadeFrames)},afade=t=out:st=${Math.max(0, (totalFrames - fadeFrames) / fps)}:d=${Math.min(fadeFrames, totalFrames) / fps}` : "";
+    mix.push(`[${index}:a]aresample=${rate},aformat=channel_layouts=stereo,apad=whole_dur=${songSeconds},atrim=duration=${songSeconds},aloop=loop=-1:size=${Math.round(songSeconds * rate)},atrim=duration=${expected},asetpts=PTS-STARTPTS,volume=${music.volumeDb ?? -40}dB${fade}[music]`);
+    labels.push("[music]");
+  }
+  for (const s of sounds) {
+    const from = Math.max(0, timeline.toFrame(s.start + (s.offset ?? 0), fps));
+    const length = Math.min(totalFrames - from, timeline.toFrame(s.seconds ?? 4, fps));
+    if (from >= totalFrames || length <= 0) continue;
+    if (!Number.isFinite(from) || !Number.isFinite(length)) throw new Error("Invalid sound effect timing: " + s.src);
+    const index = addInput(s.src), label = `sfx${labels.length}`;
+    mix.push(`[${index}:a]aresample=${rate},aformat=channel_layouts=stereo,atrim=duration=${length / fps},asetpts=PTS-STARTPTS,volume=${s.volumeDb ?? -15}dB,adelay=${Math.round(from / fps * rate)}S:all=1[${label}]`);
+    labels.push(`[${label}]`);
+  }
+  mix.push(labels.join("") + `amix=inputs=${labels.length}:duration=first:normalize=0[out]`);
+  fs.writeFileSync(graphFile, mix.join(";"));
+  const mixed = path.join(project, "public", ".preview-audio.mix.wav");
+  const fix = spawnSync("ffmpeg", ["-v", "error", "-y", ...inputs, "-filter_complex_script", graphFile,
+    "-map", "[out]", "-c:a", "pcm_s16le", mixed], {encoding: "utf8"});
+  fs.rmSync(graphFile, {force: true});
   fs.rmSync(joined, {force: true});
-  if (fix.error || fix.status !== 0) throw new Error("Preview audio padding failed: " + (fix.stderr || fix.error?.message));
+  if (fix.error || fix.status !== 0) throw new Error("Preview audio mix failed: " + (fix.stderr || fix.error?.message));
 
-  const duration = probeDuration(output);
+  const duration = probeDuration(mixed);
   if (!Number.isFinite(duration)) throw new Error("Preview audio has no readable duration: " + output);
 
   // One frame of drift is audible as a lip-sync error, so refuse anything above half a frame.
@@ -82,22 +122,25 @@ const build = (project, options = {}) => {
   if (Math.abs(duration - expected) > tolerance) {
     throw new Error(`Preview audio is ${duration.toFixed(3)} s but the edit is ${expected.toFixed(3)} s (tolerance ${tolerance.toFixed(4)} s)`);
   }
-  return {previewAudio: name, clips: ranges.length, seconds: Number(duration.toFixed(3)), expected: Number(expected.toFixed(3)), source: media};
+  fs.renameSync(mixed, output);
+  // A changed URL makes Studio reload decoded audio after every successful rebuild.
+  fs.writeFileSync(path.join(project, "src", "preview-version.js"), `export default "${Date.now()}-${process.pid}";\n`);
+  return {previewAudio: name, clips: ranges.length, sounds: sounds.length, music: Boolean(edit.music), seconds: Number(duration.toFixed(3)), expected: Number(expected.toFixed(3)), source: media};
 };
 
 if (require.main === module) {
-  try {
+  (async () => { try {
     const positional = process.argv.slice(2).filter((a) => !a.startsWith("--"));
     const flags = new Map(process.argv.slice(2).filter((a) => a.startsWith("--")).map((a) => { const [k, v] = a.slice(2).split("="); return [k, v ?? true]; }));
     const [projectArg] = positional;
     if (!projectArg) throw new Error("Usage: node preview-audio.cjs PROJECT_DIR [--source=proxy|source]");
-    const result = build(path.resolve(projectArg), {source: flags.get("source") === "source" ? "source" : "proxy"});
+    const result = await build(path.resolve(projectArg), {source: flags.get("source") === "source" ? "source" : "proxy"});
     log(`Preview audio: ${result.previewAudio}, ${result.clips} clips, ${result.seconds} s`);
     console.log(JSON.stringify(result, null, 2));
   } catch (error) {
     console.error("ERROR:", error.message);
     process.exitCode = 1;
-  }
+  } })();
 }
 
 module.exports = {build, readEdit, DEFAULT_NAME};

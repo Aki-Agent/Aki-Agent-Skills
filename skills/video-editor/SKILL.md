@@ -227,7 +227,7 @@ node <SKILL_DIR>/scripts/create-project.cjs "<VIDEO>" "<WORK_DIR>/project" "<WOR
 | Source in `public/` | hardlink (instant, no extra disk; the file is not modified) | `--copy`; falls back to a copy across drives |
 | Proxy `public/proxy.mp4` | created when the short side is above 1080 px or fps above 30: short side 480 px, 30 fps, CRF 28, `-tune fastdecode`, keyframe every second, AAC 128k | `--proxy`, `--no-proxy`, `--proxy-size=<even px>` (for example 720 for a sharper preview) |
 | Dependencies | `node_modules` is a junction to one shared install in `<WORK_DIR parent>/.cache/video-editor/remotion-4.0.546`, installed on first use | `--deps=<DIR with node_modules>`, `--no-install`, `--install-timeout=<min>` |
-| Preview audio `public/preview-audio.wav` | always built from the clips in one FFmpeg pass; the preview plays this single track instead of one audio player per clip | never disable it; rebuild with `scripts/preview-audio.cjs <PROJECT_DIR>` |
+| Preview audio `public/preview-audio.wav` | edited voice, background music and effects mixed into one track for Studio | never disable it; rebuild with `scripts/preview-audio.cjs <PROJECT_DIR>` |
 
 The target directory must not exist. The transcript must belong to this exact source and contain `segments[].words[]` with `word`, `start`, `end` in seconds. Dependencies are resolved before the project folder is created, so a failed install leaves nothing behind. The first shared install uses `npm`; if npm is a broken Corepack shim it retries with `npx --yes npm@10.9.2`; each attempt stops after `--install-timeout` minutes (10) and both real errors are reported. Measured here: the Corepack shim failed with `unable to verify the first certificate` and the fallback did not reach the registry in 5 minutes either, so the first install was not verified end to end; reuse (`--deps` pointing at an installed project) was. If npm cannot validate the registry certificate, use the system's trusted certificates; never disable TLS verification.
 
@@ -239,14 +239,14 @@ Start-Process -FilePath "powershell" -WorkingDirectory "<WORK_DIR>/project" -Arg
 
 `npx.cmd` avoids PowerShell's execution-policy problem with `npx.ps1`. Do not start a duplicate server for a running project; pick a free port for a second one. Open `http://localhost:3333/EditedVideo` in the harness's integrated browser and **activate the tab**. Studio plays `proxy.mp4` (check the network entries: only the proxy is requested); renders use the original. Studio listened on all network interfaces here; do not assume the media is private from other network clients.
 
-**Hard rule: the Studio preview always plays one continuous audio track.** Studio glitches its audio at clip joins; renders never do. Every project must therefore ship `public/preview-audio.wav` (built from the same clips in one FFmpeg pass) and `template/Video.jsx` must play it: the clips render as `<Video muted>` and a single `<Audio>` plays the joined track. Do not replace this with one audio player per clip, do not rely on `premountFor` alone, and do not "fix" a choppy preview by raising `premountFor` or shrinking the proxy. Both were measured and did not work.
+**Hard rule: Studio must play exactly one continuous audio track for the entire preview.** Before presenting or resuming Studio, the agent must compile the current edit's voice, background music and every sound effect into `public/preview-audio.wav`, using the edit's timing, levels, repetitions and fades. Play only this mixed track in Studio: mute the clip videos and do not mount separate music or sound-effect players. Rebuild the mix after any change affecting audio or its timing, including cuts, music, effects, screen or zoom anchors, and captions used as anchors. Wait for a successful rebuild before showing the preview; never present a stale mix. The render continues to use its original audio layers. `preview-audio.cjs` builds the full mix, and Studio reloads it after a successful rebuild.
 
 Why: each clip is its own player, so at every join Studio has to seek inside the media file. When that seek is not ready it schedules the next audio chunk with no lead time and drops the sound. Measured on a 62-clip edit (2160x3840, 60 fps, 480 px proxy) by hooking `AudioBufferSourceNode.start`: **1600-2043 ms of dropped audio per 30 s** with per-clip audio, `0-107 ms` with the single continuous track, three cold runs each. The scheduler lead fell to 0.000 s exactly at the drops. Ruled out as causes: composition fps (30 vs 60), composition size (480 vs 2160 px), proxy quality, `premountFor` 1 s vs 3 s, muted video plus a separate `<Audio>` per clip, and main-thread stalls (no long tasks during the drops). Audio-only playback never dropped.
 
 Rules that follow:
 
-- `scripts/preview-audio.cjs` builds the track; `create-project.cjs` runs it when the project is created, and `cut.cjs` re-runs it after every cut and undo. Never edit `edit.js` clips by hand without rebuilding it: the preview would keep the previous edit's audio.
-- The track must match the edit within half a frame; the script refuses to write it otherwise (measured: 161.683 s of audio for 9701 frames at 60 fps, 0.0003 s apart).
+- `scripts/preview-audio.cjs` builds the full mix. `create-project.cjs` and `auto-edit.cjs` run it when creating the edit; `cut.cjs` runs it after cuts and undo; `music.cjs` runs it after adding or removing music. After manual edits to clips, music, effects, screens, overlays, zooms, anchors or captions, the agent must run it again before presenting or resuming Studio.
+- The track must match the edit within half a frame; the script refuses to write it otherwise (measured: 161.683 s of audio for 9701 frames at 60 fps, 0.0003 s apart). On a real 71-clip, 215.267 s edit with music and one effect, rebuilding the full mix took 3.761 s and produced 215.267 s of audio.
 - Renders are unaffected: `previewAudio` is only mounted in Studio, so `export.cjs` keeps using each clip's own audio.
 - Do not test the preview audio by default; the fix above is already in place and this is not part of the normal workflow. Only when the user reports audio cuts in Studio, verify that the fix is actually applied: `previewAudio` present in `src/edit.js`, `public/preview-audio.wav` matching the edit, and the clips muted in `src/Video.jsx`. If any of the three is missing (a project created before this rule), rebuild as described above. Measuring is the last resort, not the first step: hook `AudioBufferSourceNode.prototype.start`, play 30 s from frame 0, and check that no two scheduled ranges leave a gap above 60 ms, on a cold play (a cache-bypassing reload glitches most).
 
@@ -256,7 +256,7 @@ Keep the Studio tab in the foreground (background tabs are throttled) and check 
 node <SKILL_DIR>/scripts/preview-audio.cjs "<WORK_DIR>/project"
 ```
 
-then add `previewAudio: "preview-audio.wav"` to `src/edit.js` and copy the current `template/Video.jsx` over `src/Video.jsx`.
+For an older project, first copy the current `template/Video.jsx` and `template/timeline.mjs` into `src/`, then run the command above. The builder creates `src/preview-version.js` to reload changed audio in Studio.
 
 ## 4. The edit plan (`src/edit.js`)
 
@@ -286,6 +286,7 @@ A missing word throws in Studio and is an error in the validator.
 ### Validate before showing
 
 ```powershell
+node <SKILL_DIR>/scripts/preview-audio.cjs "<WORK_DIR>/project"
 node <SKILL_DIR>/scripts/validate-edit.cjs "<WORK_DIR>/project"
 ```
 
@@ -348,7 +349,7 @@ node <SKILL_DIR>/scripts/music.cjs "<WORK_DIR>/project" "<SONG>" [--voice | --no
 node <SKILL_DIR>/scripts/music.cjs "<WORK_DIR>/project" --remove
 ```
 
-- **Length:** the script measures the song and the edit and reports `repeats` and `lastRepeatSeconds`. `Video.jsx` plays the song back to back exactly `ceil(edit / song)` times (Studio shows `Music 1/N`…) and cuts the last repetition at the last frame, never past it, with a `fadeOut` (1 s). Repetitions are computed from `music.duration` at render time, so later cuts need no new music pass.
+- **Length:** the script measures the song and the edit and reports `repeats` and `lastRepeatSeconds`. The preview mix and render play the song back to back exactly `ceil(edit / song)` times and cut the last repetition at the last frame, never past it, with a `fadeOut` (1 s). Repetitions are computed from `music.duration` at render time, so later cuts need no new music pass.
 - **Volume** (`volumeDb`, a gain on the file): **−40 dB** when someone talks, **−5 dB** on a video without voice. Without `--voice`/`--no-voice` the project's captions decide (any word = speech); `--db` is for what the user asks.
 - The song is copied to `public/audio/music/` (`export.cjs` copies subfolders of `public/` into the render, but skips media at its top level). `edit.js` is rewritten as JSON, like `cut.cjs`.
 

@@ -214,8 +214,51 @@ test("music.cjs repeats the song exactly to the end, picks the volume by voice, 
   assert.match(errors, /sfx\[0\]: audio\/sfx\/nope\.wav is missing/);
   assert.match(errors, /overlays\[0\] \(image\): images\/nope\.jpg is missing/);
   assert.match(errors, /screenSfx\.out: audio\/sfx\/out\.wav is missing/);
+  const rejected = music("--remove");
+  assert.equal(rejected.status, 1, "missing effects prevent a stale preview");
+  assert.match(rejected.stderr, /Audio file not found/);
+  fs.writeFileSync(file, "export default " + JSON.stringify(edit) + ";\n");
   assert.equal(music("--remove").status, 0);
   assert.ok(!/"music"/.test(fs.readFileSync(file, "utf8")));
+});
+
+test("preview mixes cut voice, repeated music and anchored effects into one track", () => {
+  const project = path.join(tmp, "preview-mix"), src = path.join(project, "src"), pub = path.join(project, "public");
+  fs.mkdirSync(src, {recursive: true}); fs.mkdirSync(pub, {recursive: true});
+  const tone = (name, frequency, duration) => execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i",
+    `sine=frequency=${frequency}:duration=${duration}:sample_rate=48000`, path.join(pub, name)]);
+  tone("source.wav", 220, 5); tone("song.wav", 440, 1); tone("effect.wav", 880, 0.4);
+  const edit = {source: "source.wav", fps: 30, clips: [{start: 0, end: 1}, {start: 2, end: 5}],
+    music: {src: "song.wav", duration: 1, volumeDb: -6, fadeOut: 0},
+    sfx: [{src: "effect.wav", word: "hello", volumeDb: -6}],
+    screens: [{start: 2.5, end: 3, sfx: "effect.wav"}]};
+  const file = path.join(src, "edit.js");
+  fs.writeFileSync(file, "export default " + JSON.stringify(edit) + ";\n");
+  fs.writeFileSync(path.join(src, "captions.js"), 'export default [{"text":" hello","startMs":2200,"endMs":2500}];\n');
+  const build = () => spawnSync(process.execPath, [path.join(SKILL, "scripts", "preview-audio.cjs"), project], {encoding: "utf8"});
+  let run = build();
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual([JSON.parse(run.stdout).seconds, JSON.parse(run.stdout).sounds], [4, 2]);
+  const version = fs.readFileSync(path.join(src, "preview-version.js"), "utf8");
+  const samples = execFileSync("ffmpeg", ["-v", "error", "-i", path.join(pub, "preview-audio.wav"),
+    "-f", "f32le", "-ac", "1", "-ar", "48000", "-"]);
+  const level = (frequency, start) => {
+    let re = 0, im = 0;
+    for (let i = 0; i < 4800; i++) {
+      const x = samples.readFloatLE((Math.round(start * 48000) + i) * 4);
+      re += x * Math.cos(2 * Math.PI * frequency * i / 48000);
+      im += x * Math.sin(2 * Math.PI * frequency * i / 48000);
+    }
+    return Math.hypot(re, im) / 2400;
+  };
+  assert.ok(level(220, 0.4) > 0.05, "voice remains audible");
+  assert.ok(level(440, 0.4) > 0.03 && level(440, 3.4) > 0.03, "music repeats throughout the edit");
+  assert.ok(level(880, 1.3) > 0.03 && level(880, 2.6) > 0.015, "word-anchored and screen effects play at their configured levels");
+  assert.ok(level(880, 0.4) < 0.005 && level(880, 3.4) < 0.005, "effects stay within their windows");
+  fs.writeFileSync(file, "export default " + JSON.stringify({...edit, music: undefined, sfx: [], screens: []}) + ";\n");
+  run = build();
+  assert.equal(run.status, 0, run.stderr);
+  assert.notEqual(fs.readFileSync(path.join(src, "preview-version.js"), "utf8"), version, "Studio gets a new audio URL");
 });
 
 test("captions.cjs replaces a window with medium words, fixes names and undoes it", () => {

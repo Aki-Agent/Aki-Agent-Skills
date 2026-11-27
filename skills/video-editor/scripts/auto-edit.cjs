@@ -89,6 +89,7 @@ const total = (clips) => round(clips.reduce((s, c) => s + c.end - c.start, 0));
   for (const c of noises.wordlessClips || []) if (c.kind !== "voiced") { clips = removeRange(clips, c.start, c.end); applied.push({type: "wordless-" + c.kind, source: [c.start, c.end]}); }
   for (const c of noises.candidates || []) if (c.likely && c.edgesBelowGate) { clips = removeRange(clips, c.cut[0], c.cut[1]); applied.push({type: "noise", score: c.score, source: c.cut, between: [c.before, c.after]}); }
   writeEdit(clips);
+  await run("preview-audio", process.execPath, [path.join(SCRIPTS, "preview-audio.cjs"), project]);
 
   // 4. Script review on the result, then validation.
   const review = await run("review-script", process.execPath, [path.join(SCRIPTS, "review-script.cjs"), transcript, project, file("review.json")]);

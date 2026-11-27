@@ -4,8 +4,9 @@ import {Audio, Video} from "@remotion/media";
 import {createTikTokStyleCaptions} from "@remotion/captions";
 import editConfig from "./edit";
 import allCaptions from "./captions";
+import previewVersion from "./preview-version";
 import {Overlay, Screen, CaptionZone} from "./components";
-import {toFrame, buildClips, durationInFrames, frameToSource, keptCaptions, limitPageWords, resolveItems} from "./timeline.mjs";
+import {toFrame, buildClips, durationInFrames, frameToSource, keptCaptions, limitPageWords, resolveItems, resolveSounds} from "./timeline.mjs";
 import {resolveTheme} from "./themes.mjs";
 
 export {durationInFrames};
@@ -96,9 +97,9 @@ const joinFade = config.joinFadeFrames ?? 1;
 // media file; when that seek is not ready it drops 0.1-0.7 s of sound (renders wait for every frame
 // and are not affected). Playing one pre-joined audio file removes the seek: on a 62-clip edit the
 // dropped audio went from 1600-2043 ms per 30 s to 0-107 ms. `scripts/preview-audio.cjs` writes that
-// file and stores its name as `previewAudio` in edit.js; create-project.cjs and cut.cjs rebuild it.
-// Without `previewAudio` (older projects) the clips keep their own audio, so nothing breaks.
-const useSplitAudio = Boolean(config.previewAudio) && getRemotionEnvironment().isStudio;
+// file; create-project.cjs, cut.cjs and music.cjs rebuild it. Studio mixes voice, music and effects
+// into this one player; renders keep the independent layers.
+const useSplitAudio = getRemotionEnvironment().isStudio;
 
 const Clip = ({index, start, length}) => {
   const src = staticFile(useProxySource() ? config.proxy : config.source);
@@ -116,7 +117,7 @@ const Clip = ({index, start, length}) => {
 // The single continuous track the preview plays. Renders never mount it: they use each clip's audio.
 const PreviewAudio = () => {
   if (!useSplitAudio) return null;
-  return <Audio src={staticFile(config.previewAudio)} volume={1} />;
+  return <Audio src={`${staticFile(config.previewAudio || "preview-audio.wav")}?v=${previewVersion}`} volume={1} />;
 };
 
 const gainOf = (db) => Math.pow(10, db / 20);
@@ -145,14 +146,7 @@ const MusicLayer = () => {
 // defaults for every screen and zoom, and `false` on an item silences it. The exit sound starts 0.3 s (the exit
 // transition) before the screen ends. Top-level `sfx` items ({src, start | word | at:"source"}) play anywhere.
 // `offset` (s) shifts a sound, for example -0.1 so a whoosh leads a slide; `volumeDb` defaults to -15.
-const sfxOf = (spec) => typeof spec === "string" ? {src: spec} : spec;
-const pickSfx = (own, fallback) => own === false ? null : own ?? fallback ?? null;
-const sounds = [
-  ...screens.flatMap((s) => [[pickSfx(s.sfx, config.screenSfx?.in), s.start, 0], [pickSfx(s.sfxOut, config.screenSfx?.out), s.end, -0.3]]),
-  ...overlays.map((o) => [pickSfx(o.sfx), o.start, 0]),
-  ...zooms.map((z) => [pickSfx(z.sfx, config.zoomSfx), z.start, 0]),
-].filter(([spec]) => spec).map(([spec, start, lead]) => { const s = sfxOf(spec); return {...s, start, offset: s.offset ?? lead}; })
-  .concat(resolveItems(config.sfx, config, captions));
+const sounds = resolveSounds(config, captions);
 const SfxLayer = () => {
   const {fps, durationInFrames: total} = useVideoConfig();
   return sounds.map((s, i) => {
@@ -226,8 +220,8 @@ export const EditedVideo = () => {
       {overlays.map((item, i) => { const length = toFrame(item.end, fps) - toFrame(item.start, fps);
         return <Sequence key={i} name={`Overlay ${i + 1}: ${item.type ?? "callout"}`} from={toFrame(item.start, fps)} durationInFrames={length}><Overlay item={item} duration={length} theme={themeInput} /></Sequence>; })}
       <PreviewAudio />
-      <MusicLayer />
-      <SfxLayer />
+      {!useSplitAudio && <MusicLayer />}
+      {!useSplitAudio && <SfxLayer />}
       <SafeZones />
     </CaptionZone.Provider>
   </AbsoluteFill>;

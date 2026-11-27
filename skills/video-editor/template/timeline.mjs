@@ -76,6 +76,22 @@ export const resolveItem = (item, plan, captions = []) => {
 
 export const resolveItems = (items = [], plan, captions = []) => items.map((item) => resolveItem(item, plan, captions));
 
+// Resolve all sound effects once for both the render and the single-track Studio mix.
+export const resolveSounds = (plan, captions = []) => {
+  const screens = resolveItems(plan.screens, plan, captions);
+  const overlays = resolveItems(plan.overlays, plan, captions);
+  const zooms = resolveItems(plan.zooms, plan, captions);
+  const pick = (own, fallback) => own === false ? null : own ?? fallback ?? null;
+  return [
+    ...screens.flatMap((s) => [[pick(s.sfx, plan.screenSfx?.in), s.start, 0], [pick(s.sfxOut, plan.screenSfx?.out), s.end, -0.3]]),
+    ...overlays.map((o) => [pick(o.sfx), o.start, 0]),
+    ...zooms.map((z) => [pick(z.sfx, plan.zoomSfx), z.start, 0]),
+  ].filter(([spec]) => spec).map(([spec, start, lead]) => {
+    const s = typeof spec === "string" ? {src: spec} : spec;
+    return {...s, start, offset: s.offset ?? lead};
+  }).concat(resolveItems(plan.sfx, plan, captions));
+};
+
 // Keeps every word that a kept clip overlaps by at least min(0.05 s, word length). A fixed
 // threshold would drop short words that sit entirely inside a clip.
 export const keptCaptions = (captions, plan) => {

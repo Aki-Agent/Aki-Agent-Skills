@@ -33,11 +33,13 @@ const tool = (cmd, args) => {
     const project = path.resolve(projectArg), editFile = path.join(project, "src", "edit.js");
     const edit = readModule(editFile);
     const write = (next) => fs.writeFileSync(editFile, "export default " + JSON.stringify(next, null, 2) + ";\n");
+    const rebuildPreview = () => tool(process.execPath, [path.join(__dirname, "preview-audio.cjs"), project]);
 
     if (flags.has("remove")) {
       if (!edit.music) throw new Error("edit.js has no music");
       const {music, ...rest} = edit;
       write(rest);
+      try { rebuildPreview(); } catch (error) { write(edit); throw error; }
       log(`Removed music ${music.src} (the file stays in public/)`);
       return;
     }
@@ -79,6 +81,7 @@ const tool = (cmd, args) => {
       fs.mkdirSync(path.dirname(target), {recursive: true});
       if (!fs.existsSync(target) || fs.statSync(target).size !== fs.statSync(song).size) fs.copyFileSync(song, target);
       write({...edit, music});
+      try { rebuildPreview(); } catch (error) { write(edit); throw error; }
     }
     log(`${report.dryRun ? "Dry run: " : ""}song ${report.songSeconds} s, edit ${report.editSeconds} s -> ${repeats} repetition(s), last one ${report.lastRepeatSeconds} s; `
       + `${volumeDb} dB (${voice ? "speech" : "no voice"}, from ${reason}), fade-out ${fadeOut} s`);
