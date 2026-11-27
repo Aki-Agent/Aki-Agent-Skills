@@ -30,7 +30,7 @@ const positionOf = (item, kind) => item.position ?? (kind === "overlay" ? ({lowe
     const src = path.join(path.resolve(projectArg), "src");
     const timelineFile = path.join(src, "timeline.mjs");
     if (!fs.existsSync(timelineFile)) throw new Error("Missing src/timeline.mjs; the project was created with an older template");
-    const {buildClips, durationInFrames, keptCaptions, resolveItem, toFrame} = await import(pathToFileURL(timelineFile).href);
+    const {buildClips, clipsInFrames, durationInFrames, keptCaptions, resolveItem, toFrame} = await import(pathToFileURL(timelineFile).href);
     const plan = loadDefault(path.join(src, "edit.js"));
     const allCaptions = fs.existsSync(path.join(src, "captions.js")) ? loadDefault(path.join(src, "captions.js")) : [];
     const components = fs.readFileSync(path.join(src, "components.jsx"), "utf8");
@@ -49,6 +49,17 @@ const positionOf = (item, kind) => item.position ?? (kind === "overlay" ? ({lowe
     });
     if (plan.proxy && !fs.existsSync(path.join(path.resolve(projectArg), "public", plan.proxy))) errors.push(`proxy ${plan.proxy} is missing from public/`);
     const total = durationInFrames(plan) / plan.fps;
+    const speech = clipsInFrames(plan) / plan.fps;
+    // A closing `endcard` belongs in the silent tail, never on top of the speech.
+    const endcards = (plan.screens ?? []).filter((s) => s.type === "endcard");
+    if (endcards.length) {
+      if (!(Number(plan.outro) > 0)) warnings.push("an endcard needs `outro` (seconds of silence after the last clip), or it covers the end of the speech");
+      for (const s of endcards) {
+        // Compare in frames: seconds are rounded in edit.js, so a card at the speech end is fine.
+        if (toFrame(Number(s.start), plan.fps) < clipsInFrames(plan)) warnings.push(`endcard starts at ${round(Number(s.start))} s but the speech ends at ${round(speech)} s; it will cover the voice`);
+        if (toFrame(Number(s.end), plan.fps) > durationInFrames(plan)) errors.push(`endcard ends at ${round(Number(s.end))} s, past the edit (${round(total)} s); raise \`outro\``);
+      }
+    }
     const captions = keptCaptions(allCaptions, plan);
 
     // Items: resolve anchors exactly like Video.jsx, then check each one.
@@ -75,7 +86,7 @@ const positionOf = (item, kind) => item.position ?? (kind === "overlay" ? ({lowe
     if (plan.music) {
       needFile(plan.music.src, "music");
       if (!(plan.music.duration > 0)) errors.push("music.duration must be the song length in seconds (written by music.cjs)");
-      else musicSummary = {src: plan.music.src, volumeDb: plan.music.volumeDb ?? -40, repeats: Math.ceil(durationInFrames(plan) / Math.max(1, Math.floor(plan.music.duration * plan.fps)))};
+      else musicSummary = {src: plan.music.src, volumeDb: plan.music.volumeDb ?? -27, repeats: Math.ceil(clipsInFrames(plan) / Math.max(1, Math.floor(plan.music.duration * plan.fps)))};
       if (plan.music.volumeDb !== undefined && !Number.isFinite(plan.music.volumeDb)) errors.push(`music.volumeDb "${plan.music.volumeDb}" is not a number`);
     }
     const sfxOf = (spec) => typeof spec === "string" ? {src: spec} : spec;

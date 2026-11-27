@@ -281,7 +281,7 @@ theme: {preset: "neon", primary: "#22d3ee", secondary: "#facc15"}, showSafeZones
 
 A missing word throws in Studio and is an error in the validator.
 
-**Other fields:** `captionsPosition` (`"center"` / `"bottom"`), `captionsMaxWords` (4 vertical, 6 horizontal), `fontFile` (font in `public/`, loaded locally), `joinFadeFrames` (1), `screenSettle` (true), `showSafeZones` (false), `theme`, `proxy`, `music` (written by `music.cjs`), `sfx` (free-standing sound effects), `screenSfx`, `zoomSfx` (default sounds; see "Sound effects").
+**Other fields:** `captionsPosition` (`"center"` / `"bottom"`), `captionsMaxWords` (4 vertical, 6 horizontal), `fontFile` (font in `public/`, loaded locally), `joinFadeFrames` (1), `screenSettle` (true), `showSafeZones` (false), `outro` (0; seconds of silent closing tail, see "Closing card"), `theme`, `proxy`, `music` (written by `music.cjs`), `sfx` (free-standing sound effects), `screenSfx`, `zoomSfx` (default sounds; see "Sound effects").
 
 ### Validate before showing
 
@@ -349,11 +349,11 @@ node <SKILL_DIR>/scripts/music.cjs "<WORK_DIR>/project" "<SONG>" [--voice | --no
 node <SKILL_DIR>/scripts/music.cjs "<WORK_DIR>/project" --remove
 ```
 
-- **Length:** the script measures the song and the edit and reports `repeats` and `lastRepeatSeconds`. The preview mix and render play the song back to back exactly `ceil(edit / song)` times and cut the last repetition at the last frame, never past it, with a `fadeOut` (1 s). Repetitions are computed from `music.duration` at render time, so later cuts need no new music pass.
-- **Volume** (`volumeDb`, a gain on the file): **−40 dB** when someone talks, **−5 dB** on a video without voice. Without `--voice`/`--no-voice` the project's captions decide (any word = speech); `--db` is for what the user asks.
+- **Length:** the script measures the song and the edit and reports `repeats` and `lastRepeatSeconds`. The preview mix and render play the song back to back exactly `ceil(edit / song)` times and cut the last repetition at the last frame, never past it, with a `fadeOut` (1 s). Repetitions are computed from `music.duration` at render time, so later cuts need no new music pass. With an `outro` (silent closing tail) the music stops with the speech instead: it is mixed over `clipsInFrames`, not over the whole composition.
+- **Volume** (`volumeDb`, a gain on the file): **−27 dB** when someone talks, **−5 dB** on a video without voice. Without `--voice`/`--no-voice` the project's captions decide (any word = speech); `--db` is for what the user asks. −27 dB is the value the user approved by ear and is the default to reuse: on a reference track (−13.2 LUFS, peak −1 dB) it sits about 10 dB under a voice measured at −17.4 LUFS. The older −40 dB default came from a louder song and left this one at −53 LUFS, inaudible; do not go back to it without measuring both signals first (`ffmpeg -af ebur128`).
 - The song is copied to `public/audio/music/` (`export.cjs` copies subfolders of `public/` into the render, but skips media at its top level). `edit.js` is rewritten as JSON, like `cut.cjs`.
 
-Measured on the 212.7 s test edit with a 40.5 s song: 6 repetitions, the last one 10.183 s (5 × 40.5 + 10.183 = 212.683 s). Rendered without speech, the music peaked at −59.7 dB (song peak −19.7 dB − 40), the last second faded to silence and the audio ended on the last frame.
+Measured on the 212.7 s test edit with a 40.5 s song: 6 repetitions, the last one 10.183 s (5 × 40.5 + 10.183 = 212.683 s). Rendered without speech at the old −40 dB default, the music peaked at −59.7 dB (song peak −19.7 dB − 40), the last second faded to silence and the audio ended on the last frame. That song was loud enough for −40 dB; most are not, which is why the default is now −27 dB.
 
 ### Sound effects on screens, images and overlays
 
@@ -374,7 +374,7 @@ node <SKILL_DIR>/scripts/sfx.cjs get "<WORK_DIR>/project" swoosh/7 pop/4 bassy-i
 | a `breaking` or `stat` screen, a big figure | `bassy-impact` | 0.92–2.57 s |
 | `alert`, `notification`, `cta` click | `ding`, `notification`, `click-mouse-click`, `button`, `modern-interface` | not measured |
 
-Use them in `edit.js` at **−15 dB** (the default). `screenSfx` and `zoomSfx` give every screen an entrance and an exit sound and every zoom a whoosh; an item's own `sfx`/`sfxOut` replaces the default and `false` silences it:
+Use them in `edit.js` at **−15 dB** (the default). `screenSfx` and `zoomSfx` give every screen an entrance and an exit sound and every zoom a whoosh; an item's own `sfx`/`sfxOut` replaces the default and `false` silences it. **Standing preference: every screen change carries this woosh by default, and −15 dB is the level the user approved.** Set `screenSfx` and `zoomSfx` in every project without being asked; they are part of the edit, not an extra. Keep the `swoosh` pack and that level unless the user asks for a different sound or a different loudness:
 
 ```js
 screenSfx: {in: "audio/sfx/swoosh-7.wav", out: "audio/sfx/swoosh-1.wav"},   // exit starts 0.3 s before the screen ends
@@ -388,7 +388,70 @@ An item's `sfx` plays at its start; `offset` (s) shifts it (−0.1 lets a whoosh
 
 ### Safe zones
 
-`showSafeZones: true` draws a Studio-only guide; it never appears in stills or renders. Vertical: top 10 %, bottom 20 % and a right column (16 % wide, 40–80 % of the height) where Shorts/Reels/TikTok draw their interface; these are approximations, not measured per platform. Horizontal: a 2.5 % action-safe border. Keep text and badges out of the marked areas.
+Vertical video plays inside an app interface, so part of the frame is never seen. The guide drawn by
+`showSafeZones: true` marks the approximate areas covered by Shorts / Reels / TikTok: **top 10 %**,
+**bottom 20 %** and a **right column 16 % wide** (between 40 % and 80 % of the height). Horizontal
+video only needs a 2.5 % action-safe border. The guide is Studio-only and never appears in stills or
+renders.
+
+Everything that draws on a vertical frame has to stay inside the remaining box. That is already true
+of the shipped components, and these are the rules that make it true:
+
+| Rule | Why |
+|---|---|
+| Vertical insets are **pixels computed from the height**, never percentages | CSS resolves *every* percentage padding against the **width**. `padding: "8%"` on 2160×3840 is 173 px on all four sides: text starts at y = 173 while the top UI reaches 384, and ends at 3667 while the bottom UI starts at 3072 |
+| A card that sets its own `padding` in `style` **overrides** the shared helper | `split` (`"6% 8%"`) and `endcard` (`"10% 8%"`) did exactly that and reached into the bands |
+| Any component calling `safePad` must destructure `height` from `useVideoConfig()` | Without it the helper takes the horizontal branch and the card silently falls back to 6 %/8 %; this happened to `endcard` |
+| Cards with no `Backdrop` need their own insets | `image` draws full-frame; its caption band uses `height*0.10` / `height*0.22` and its credit sits `width*0.17` from the right |
+
+The helper lives in `components.jsx` and `Backdrop` — used by every card except `image` and
+`endcard` — applies it:
+
+```js
+const safePad = (width, height) => height > width
+  ? `${Math.round(height*0.13)}px ${Math.round(width*0.17)}px ${Math.round(height*0.24)}px ${Math.round(width*0.06)}px`
+  : "6% 8%";
+```
+
+The insets leave a margin over the UI: 13 % top (> 10 %), 24 % bottom (> 20 %), 17 % right (> 16 %),
+6 % left. On 2160×3840 the content box is 130–1793 px wide and 499–2918 px tall, inside the
+384 / 3072 / 1814 limits.
+
+**Checking a project.** Set `showSafeZones: true` in `edit.js`, reload Studio and look at one frame
+per screen type. Headless, render stills with the guide lifted from its Studio-only guard (change
+`if (!config.showSafeZones || !getRemotionEnvironment().isStudio) return null;` to
+`if (!config.showSafeZones) return null;`) and restore the guard afterwards:
+
+```powershell
+node <PROJECT>/node_modules/@remotion/cli/remotion-cli.js still src/index.jsx EditedVideo still.png --frame=3000 --scale=0.5
+```
+
+Verified on the reference edit at frames 3000 (`compare`), 4680 (`list`) and 9900 (`endcard`): no
+card text or panel crosses a band. The only remaining overlaps are decorative rules from the `beam`
+effect, which paint behind the content.
+
+### Closing card in a silent tail (`outro`)
+
+A closing card belongs **after** the speech, never on top of it. `durationInFrames` used to be just
+the sum of the clips, so an `endcard` placed "at the end" necessarily covered the last words. The
+composition now has two parts: `clipsInFrames(plan)` is the speech and `tailInFrames(plan)` is a
+silent tail of `outro` seconds; `durationInFrames` adds them.
+
+- The card is anchored at the first second of the tail and sized by its own length.
+- Music stops with the speech: `MusicLayer` repeats the song only across `clipsInFrames` and fades
+  out there, and `preview-audio.cjs` trims the music to `speech` and pads the mix to `speech + outro`.
+  Effects still play in the tail, so a card keeps its entrance woosh (set `sfx: false` / `sfxOut: false`
+  on the card when it should be completely silent).
+- `export.cjs` adds `tailFrames` to the expected duration; the flat render source stays as long as
+  the clips.
+- `validate-edit.cjs` warns when an `endcard` exists without `outro` or starts before the speech
+  ends, and errors when the card ends past the composition.
+
+Procedure: set the card's `start` to `clipsInFrames / fps`, its `end` to that plus its length, and
+`outro` to the same length. Reference edit: speech 162.783 s, card 162.783–167.783 s, `outro: 5`.
+Measured on the mixed preview: the tail reads **−99 dB** (digital silence) against −21.2 dB just
+before it. A 71-clip real-input edit with music and a 2 s outro rebuilt its 217.267 s preview mix in
+5.558 s; its outro measured −91 dB with no effects.
 
 ## 6. Component library (`src/components.jsx`)
 
@@ -427,7 +490,7 @@ Preview everything in the `Gallery` composition (`/Gallery`, project size) and `
 | `image` | Photo of the news/person or a screenshot, slow Ken Burns push | `src` (file in `public/` or URL), `fit` (`cover`; `contain` adds a blurred fill), `title`, `caption`, `credit`, `kenBurns` (true) |
 | `split` | Horizontal-first: text on one half, icon or counting figure on the other | `kicker`, `title`, `text`, `icon` (`bulb`) or `value` + `prefix`/`suffix`/`decimals`/`locale`, `label`, `side` (`left`), `color` |
 | `timeline` | Horizontal-first: numbered steps on a growing line | `title`, `steps[]` (strings or `{label, text}`), `color` |
-| `endcard` | Closing card: logo, channel name beside it and a small credit line, on a solid plate. For the end of the video | `logo` (`aki-logo.png` in `public/`; `null` draws none), `name` (`Aki Agent`), `tagline`, `background` (`#1d2348`), `font` (Inter) |
+| `endcard` | Closing card: logo, channel name beside it and a small credit line, on a solid plate. For the end of the video, after the speech: set `outro` to its length and place it at the first silent second | `logo` (`aki-logo.png` in `public/`; `null` draws none), `name` (`Aki Agent`), `tagline`, `background` (`#1d2348`), `font` (Inter) |
 
 In horizontal video, place `sidePanel` opposite the speaker and keep `ticker` to 5–10 s. Large titles (`title`, `chapter`, `breaking`, `stat`, `split`, `kinetic`) shrink so the longest word fits the frame; still check very long titles.
 

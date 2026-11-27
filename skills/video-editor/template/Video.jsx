@@ -6,7 +6,7 @@ import editConfig from "./edit";
 import allCaptions from "./captions";
 import previewVersion from "./preview-version";
 import {Overlay, Screen, CaptionZone} from "./components";
-import {toFrame, buildClips, durationInFrames, frameToSource, keptCaptions, limitPageWords, resolveItems, resolveSounds} from "./timeline.mjs";
+import {toFrame, buildClips, clipsInFrames, durationInFrames, frameToSource, keptCaptions, limitPageWords, resolveItems, resolveSounds} from "./timeline.mjs";
 import {resolveTheme} from "./themes.mjs";
 
 export {durationInFrames};
@@ -20,6 +20,9 @@ export const config = {...editConfig, ...(renderProps.fps ? {fps:Number(renderPr
 
 const vertical = config.height > config.width;
 const clips = buildClips(config);
+// Frames covered by the kept clips. `outro` (edit.js) adds a silent tail after them, used by a
+// closing `endcard`: music fades out with the speech, so the tail plays with no voice and no music.
+const speechFrames = clipsInFrames(config);
 // Captions are filtered by the kept clips, so a cut stumble disappears from the text automatically.
 const captions = keptCaptions(allCaptions, config);
 const zooms = resolveItems(config.zooms, config, captions);
@@ -125,17 +128,18 @@ const gainOf = (db) => Math.pow(10, db / 20);
 // Background music (`music` in edit.js, written by scripts/music.cjs): the song repeats back to back
 // exactly as many times as the edit needs, and the last repetition is cut at the end of the video.
 // Repetitions are computed here from `music.duration`, so later cuts never need a new music pass.
-// `volumeDb` is a gain on the file (-40 under speech, -5 without voice); `fadeOut` seconds at the end (1).
+// `volumeDb` is a gain on the file (-27 under speech, -5 without voice); `fadeOut` seconds at the end (1).
 const MusicLayer = () => {
-  const {fps, durationInFrames: total} = useVideoConfig();
+  const {fps} = useVideoConfig();
   const music = config.music;
   if (!music) return null;
-  const song = Math.max(1, Math.floor(music.duration * fps)), repeats = Math.ceil(total / song);
-  const gain = gainOf(music.volumeDb ?? -40), fade = toFrame(music.fadeOut ?? 1, fps);
+  // Music covers the speech only: with an `outro` tail the closing card plays in silence.
+  const song = Math.max(1, Math.floor(music.duration * fps)), repeats = Math.ceil(speechFrames / song);
+  const gain = gainOf(music.volumeDb ?? -27), fade = toFrame(music.fadeOut ?? 1, fps);
   return Array.from({length: repeats}, (_, i) => {
     const from = i * song;
-    const volume = (f) => gain * (fade > 0 ? Math.min(1, Math.max(0, (total - from - f) / fade)) : 1);
-    return <Sequence key={i} name={`Music ${i + 1}/${repeats}`} from={from} durationInFrames={Math.min(song, total - from)} layout="none">
+    const volume = (f) => gain * (fade > 0 ? Math.min(1, Math.max(0, (speechFrames - from - f) / fade)) : 1);
+    return <Sequence key={i} name={`Music ${i + 1}/${repeats}`} from={from} durationInFrames={Math.min(song, speechFrames - from)} layout="none">
       <Audio src={staticFile(music.src)} volume={volume} />
     </Sequence>;
   });

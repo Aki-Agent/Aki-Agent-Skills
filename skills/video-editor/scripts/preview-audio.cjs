@@ -53,8 +53,10 @@ const build = async (project, options = {}) => {
 
   const name = edit.previewAudio || DEFAULT_NAME;
   const output = path.join(project, "public", name);
-  const expected = ranges.reduce((sum, r) => sum + (r.end - r.start), 0);
-
+  const speech = ranges.reduce((sum, r) => sum + (r.end - r.start), 0);
+  // `outro` is a silent closing tail (an `endcard` lives there), so the mix is longer than the voice.
+  const outro = Math.max(0, Number(edit.outro) || 0);
+  const expected = speech + outro;
   // Pass 1: concatenate the clips. The joined length is checked before anything is padded, so clips
   // that point past the end of the media (stale edit.js) fail loudly instead of turning into silence.
   const joined = path.join(project, "public", ".preview-audio.tmp.wav");
@@ -67,16 +69,17 @@ const build = async (project, options = {}) => {
   if (!Number.isFinite(natural)) throw new Error("Joined preview audio has no readable duration");
   // AAC frames pad the tail by up to ~0.03 s; anything larger means the clips do not match the media.
   const slack = Math.max(0.05, 2 / fps);
-  if (natural < expected - slack) {
-    throw new Error(`Joined preview audio is ${natural.toFixed(3)} s but the edit is ${expected.toFixed(3)} s: clips point past the end of ${media}`);
+  if (natural < speech - slack) {
+    throw new Error(`Joined preview audio is ${natural.toFixed(3)} s but the speech is ${speech.toFixed(3)} s: clips point past the end of ${media}`);
   }
-  if (natural > expected + slack) {
-    throw new Error(`Joined preview audio is ${natural.toFixed(3)} s but the edit is ${expected.toFixed(3)} s: clips overlap or fps is wrong`);
+  if (natural > speech + slack) {
+    throw new Error(`Joined preview audio is ${natural.toFixed(3)} s but the speech is ${speech.toFixed(3)} s: clips overlap or fps is wrong`);
   }
 
   // Mix the voice, repeated music, and all resolved effects into one Studio audio stream.
   // Frame rounding and effect placement match Video.jsx. The render still plays its own layers.
-  const rate = 48000, totalFrames = Math.round(expected * fps);
+  // Music stops with the speech (the closing tail stays silent); effects may run into the tail.
+  const rate = 48000, speechFrames = Math.round(speech * fps), totalFrames = Math.round(expected * fps);
   const inputs = ["-i", joined], mix = [
     `[0:a]aresample=${rate},aformat=channel_layouts=stereo,apad=whole_dur=${expected.toFixed(6)},atrim=duration=${expected.toFixed(6)}[voice]`
   ], labels = ["[voice]"];
@@ -92,8 +95,8 @@ const build = async (project, options = {}) => {
     const songFrames = Math.max(1, Math.floor(music.duration * fps));
     const songSeconds = songFrames / fps, fadeFrames = timeline.toFrame(music.fadeOut ?? 1, fps);
     if (!Number.isFinite(songSeconds) || !Number.isFinite(fadeFrames)) throw new Error("Invalid music duration or fade");
-    const fade = fadeFrames > 0 ? `,volume=${Math.min(1, totalFrames / fadeFrames)},afade=t=out:st=${Math.max(0, (totalFrames - fadeFrames) / fps)}:d=${Math.min(fadeFrames, totalFrames) / fps}` : "";
-    mix.push(`[${index}:a]aresample=${rate},aformat=channel_layouts=stereo,apad=whole_dur=${songSeconds},atrim=duration=${songSeconds},aloop=loop=-1:size=${Math.round(songSeconds * rate)},atrim=duration=${expected},asetpts=PTS-STARTPTS,volume=${music.volumeDb ?? -40}dB${fade}[music]`);
+    const fade = fadeFrames > 0 ? `,volume=${Math.min(1, speechFrames / fadeFrames)},afade=t=out:st=${Math.max(0, (speechFrames - fadeFrames) / fps)}:d=${Math.min(fadeFrames, speechFrames) / fps}` : "";
+    mix.push(`[${index}:a]aresample=${rate},aformat=channel_layouts=stereo,apad=whole_dur=${songSeconds},atrim=duration=${songSeconds},aloop=loop=-1:size=${Math.round(songSeconds * rate)},atrim=duration=${speech},asetpts=PTS-STARTPTS,volume=${music.volumeDb ?? -27}dB${fade}[music]`);
     labels.push("[music]");
   }
   for (const s of sounds) {

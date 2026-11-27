@@ -78,3 +78,33 @@ The first template drew captions inside the zoomed clip, so every punch-in also 
 ## Large titles
 
 A single 15-letter uppercase word in `kinetic` overflowed a 720 px vertical frame; large titles now shrink so the longest word fits.
+
+## Cards ignored the vertical safe zones (2160×3840, 60 fps)
+
+`Backdrop` used `padding: "8%"`. CSS resolves every percentage padding against the **width**, so on a
+2160×3840 frame that is 173 px on all four sides, not 8 % of the height. Measured against the guide
+drawn by `showSafeZones`: text began at y = 173 with the top UI reaching 384, and ended at 3667 with
+the bottom UI starting at 3072 — the card was under both bands, and the right edge (1987) was past the
+action rail (1814). Two cards made it worse by setting their own padding (`split` at `"6% 8%"`,
+`endcard` at `"10% 8%"`). Insets are now computed in pixels from the frame height (13 % / 24 % / 17 %
+/ 6 %), giving a content box of 130–1793 × 499–2918 px, inside all three limits. Verified with stills
+at frames 3000, 4680 and 9900.
+
+## A closing card covered the last words (same edit)
+
+`durationInFrames` was the sum of the clips, so an `endcard` placed "at the end" necessarily sat on
+top of the speech: it ran 155.767–161.767 s while the voice ended at 161.85 s. A silent tail is now
+part of the composition (`outro`, in seconds) and music stops with the speech instead of running to
+the last frame. After the change the card runs 162.783–167.783 s with `outro: 5`, and the mixed
+preview reads −99 dB in the tail against −21.2 dB just before it.
+
+## A word can be lost at a join even when the clip looks right
+
+A final plural consonant was cut off. The clip ended at 135.817 s and the transcript placed the word at
+135.50–135.82 s, so the timestamps said it fit; the 5 ms energy profile showed the consonant running to
+135.865 s. Extending the clip to 135.9 s was not enough either: the next kept clip started at
+136.84 s, cutting a phrase mid-sentence. Joining the whole phrase (clip to 137.027 s, dropping the
+0.187 s clip that followed) fixed it. The screen anchor also pointed to an occurrence inside a removed
+range, which snapped it to the next clip and made it collide with the previous screen. Anchors resolve
+against the **kept** captions, so an occurrence that was cut does not exist — check `resolveItem`
+output, not the raw transcript.

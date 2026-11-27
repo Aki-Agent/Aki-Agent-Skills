@@ -51,7 +51,8 @@ const pool = async (jobs, size) => { let next = 0; await Promise.all(Array.from(
   const {buildClips} = await import(pathToFileURL(path.join(project, "src", "timeline.mjs")).href);
   const clips = buildClips({...edit, fps});
   const frames = clips.reduce((s, c) => s + c.length, 0);
-
+  // `outro` adds silent frames after the last clip (the closing card); they are not in the flat source.
+  const tailFrames = Math.round((Number(edit.outro) || 0) * fps);
   // 1. Flat render source (cached).
   const dir = path.join(work, "render", `${width}x${height}@${fps}`), flat = path.join(dir, "render.mp4"), stamp = path.join(dir, "render.json");
   const st = fs.statSync(source);
@@ -100,7 +101,7 @@ const pool = async (jobs, size) => { let next = 0; await Promise.all(Array.from(
   // 3. Verify.
   const probe = JSON.parse(spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=duration,size:stream=codec_type,codec_name,width,height,r_frame_rate,nb_frames", "-of", "json", output], {encoding: "utf8"}).stdout);
   const video = probe.streams.find((s) => s.codec_type === "video"), audio = probe.streams.find((s) => s.codec_type === "audio");
-  const expected = flags.has("frames") ? null : Math.round(frames / fps * 1000) / 1000;
+  const expected = flags.has("frames") ? null : Math.round((frames + tailFrames) / fps * 1000) / 1000;
   const duration = Number(probe.format.duration);
   const ok = Boolean(video && audio && video.width === width && video.height === height && (expected === null || Math.abs(duration - expected) < 0.1));
   timings.total = secondsSince(started);

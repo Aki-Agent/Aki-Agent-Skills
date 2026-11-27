@@ -4,7 +4,7 @@
 // needs and cuts the last repetition at the end of the video (never past it), with a fade-out.
 // Usage: node music.cjs PROJECT_DIR SONG [--voice | --no-voice] [--db=N] [--fade-out=1] [--dry-run]
 //        node music.cjs PROJECT_DIR --remove
-// Volume: -40 dB under speech, -5 dB on a video without voice. Without --voice/--no-voice the project's
+// Volume: -27 dB under speech, -5 dB on a video without voice. Without --voice/--no-voice the project's
 // captions decide (any caption word = speech). --db overrides both (what the user asked for).
 // edit.js is written back as JSON (comments are lost), like cut.cjs.
 const fs = require("node:fs");
@@ -13,7 +13,7 @@ const vm = require("node:vm");
 const {pathToFileURL} = require("node:url");
 const {spawnSync} = require("node:child_process");
 
-const VOICE_DB = -40, NO_VOICE_DB = -5;
+const VOICE_DB = -27, NO_VOICE_DB = -5;
 const round = (n) => Math.round(n * 1000) / 1000;
 const log = (message) => process.stderr.write(message + "\n");
 const readModule = (file) => vm.runInNewContext("(" + fs.readFileSync(file, "utf8").replace(/^\s*export\s+default\s+/m, "").replace(/;\s*$/, "") + ")");
@@ -53,7 +53,8 @@ const tool = (cmd, args) => {
     const peak = /max_volume: (-?[\d.]+) dB/.exec(tool("ffmpeg", ["-v", "info", "-nostdin", "-i", song, "-vn", "-af", "volumedetect", "-f", "null", "-"]).stderr);
 
     // Output length with the project's own timeline, exactly as Studio and the render compute it.
-    const {durationInFrames} = await import(pathToFileURL(path.join(project, "src", "timeline.mjs")).href);
+    // Music covers the speech only: a closing `outro` tail (an `endcard`) stays silent.
+    const {clipsInFrames, durationInFrames} = await import(pathToFileURL(path.join(project, "src", "timeline.mjs")).href);
     const editSeconds = durationInFrames(edit) / edit.fps;
 
     let voice, reason;
@@ -72,7 +73,7 @@ const tool = (cmd, args) => {
     const src = `audio/music/${name}`, target = path.join(project, "public", "audio", "music", name);
     // Same frame math as Video.jsx: whole song frames per repetition, the last one cut at the end.
     const music = {src, duration: round(songSeconds), volumeDb, fadeOut};
-    const songFrames = Math.max(1, Math.floor(music.duration * edit.fps)), total = durationInFrames(edit);
+    const songFrames = Math.max(1, Math.floor(music.duration * edit.fps)), total = clipsInFrames(edit);
     const repeats = Math.ceil(total / songFrames), lastSeconds = (total - (repeats - 1) * songFrames) / edit.fps;
     const report = {ok: true, dryRun: flags.has("dry-run"), music, songSeconds: round(songSeconds), editSeconds: round(editSeconds),
       repeats, lastRepeatSeconds: round(lastSeconds), songPeakDb: peak ? Number(peak[1]) : null, voice, voiceFrom: reason};

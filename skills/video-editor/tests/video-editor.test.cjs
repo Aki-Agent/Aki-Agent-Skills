@@ -196,14 +196,14 @@ test("music.cjs repeats the song exactly to the end, picks the volume by voice, 
   assert.equal(auto.status, 0, auto.stderr);
   const result = JSON.parse(auto.stdout);
   // 4.9 s of edit with a 2 s song: 3 repetitions, the last one cut at 0.9 s, never past the end.
-  assert.deepEqual([result.repeats, result.lastRepeatSeconds, result.voice, result.music.volumeDb, result.music.src], [3, 0.9, true, -40, "audio/music/song-2s.wav"]);
+  assert.deepEqual([result.repeats, result.lastRepeatSeconds, result.voice, result.music.volumeDb, result.music.src], [3, 0.9, true, -27, "audio/music/song-2s.wav"]);
   assert.ok(fs.existsSync(path.join(pub, "audio", "music", "song-2s.wav")));
   assert.equal(JSON.parse(music(song, "--no-voice", "--dry-run").stdout).music.volumeDb, -5);
   assert.equal(JSON.parse(music(song, "--db=-20", "--dry-run").stdout).music.volumeDb, -20);
   const validate = () => spawnSync(process.execPath, [path.join(SKILL, "scripts", "validate-edit.cjs"), project], {encoding: "utf8"});
   let check = validate();
   assert.equal(check.status, 0, check.stderr);
-  assert.deepEqual(JSON.parse(check.stdout).music, {src: "audio/music/song-2s.wav", volumeDb: -40, repeats: 3});
+  assert.deepEqual(JSON.parse(check.stdout).music, {src: "audio/music/song-2s.wav", volumeDb: -27, repeats: 3});
   // A missing sound effect or image is an error, not a silent gap in the render.
   const file = path.join(src, "edit.js"), edit = JSON.parse(fs.readFileSync(file, "utf8").replace(/^export default /, "").replace(/;\s*$/, ""));
   fs.writeFileSync(file, "export default " + JSON.stringify({...edit, sfx: [{src: "audio/sfx/nope.wav", start: 1}], screenSfx: {out: "audio/sfx/out.wav"},
@@ -228,9 +228,9 @@ test("preview mixes cut voice, repeated music and anchored effects into one trac
   const tone = (name, frequency, duration) => execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i",
     `sine=frequency=${frequency}:duration=${duration}:sample_rate=48000`, path.join(pub, name)]);
   tone("source.wav", 220, 5); tone("song.wav", 440, 1); tone("effect.wav", 880, 0.4);
-  const edit = {source: "source.wav", fps: 30, clips: [{start: 0, end: 1}, {start: 2, end: 5}],
+  const edit = {source: "source.wav", fps: 30, clips: [{start: 0, end: 1}, {start: 2, end: 5}], outro: 1,
     music: {src: "song.wav", duration: 1, volumeDb: -6, fadeOut: 0},
-    sfx: [{src: "effect.wav", word: "hello", volumeDb: -6}],
+    sfx: [{src: "effect.wav", word: "hello", volumeDb: -6}, {src: "effect.wav", start: 4.2, volumeDb: -6}],
     screens: [{start: 2.5, end: 3, sfx: "effect.wav"}]};
   const file = path.join(src, "edit.js");
   fs.writeFileSync(file, "export default " + JSON.stringify(edit) + ";\n");
@@ -238,7 +238,7 @@ test("preview mixes cut voice, repeated music and anchored effects into one trac
   const build = () => spawnSync(process.execPath, [path.join(SKILL, "scripts", "preview-audio.cjs"), project], {encoding: "utf8"});
   let run = build();
   assert.equal(run.status, 0, run.stderr);
-  assert.deepEqual([JSON.parse(run.stdout).seconds, JSON.parse(run.stdout).sounds], [4, 2]);
+  assert.deepEqual([JSON.parse(run.stdout).seconds, JSON.parse(run.stdout).sounds], [5, 3]);
   const version = fs.readFileSync(path.join(src, "preview-version.js"), "utf8");
   const samples = execFileSync("ffmpeg", ["-v", "error", "-i", path.join(pub, "preview-audio.wav"),
     "-f", "f32le", "-ac", "1", "-ar", "48000", "-"]);
@@ -255,6 +255,8 @@ test("preview mixes cut voice, repeated music and anchored effects into one trac
   assert.ok(level(440, 0.4) > 0.03 && level(440, 3.4) > 0.03, "music repeats throughout the edit");
   assert.ok(level(880, 1.3) > 0.03 && level(880, 2.6) > 0.015, "word-anchored and screen effects play at their configured levels");
   assert.ok(level(880, 0.4) < 0.005 && level(880, 3.4) < 0.005, "effects stay within their windows");
+  assert.ok(level(220, 4.3) < 0.005 && level(440, 4.3) < 0.005, "voice and music stop before the outro");
+  assert.ok(level(880, 4.3) > 0.03 && level(880, 4.8) < 0.005, "an outro effect plays only in its window");
   fs.writeFileSync(file, "export default " + JSON.stringify({...edit, music: undefined, sfx: [], screens: []}) + ";\n");
   run = build();
   assert.equal(run.status, 0, run.stderr);

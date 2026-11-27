@@ -12,6 +12,12 @@ const variants = {info:{color:"#3d8bff",icon:"info"}, success:{color:"#22c55e",i
 const clamp = {extrapolateLeft:"clamp", extrapolateRight:"clamp"};
 
 const useUnit = () => { const {width,height}=useVideoConfig(); return Math.min(width,height)/100; };
+// Safe zones of the vertical platforms (Shorts, Reels, TikTok): the app UI covers the top 10%,
+// the bottom 20% and the right 16% of the frame. Cards stay inside what is left, with a small
+// margin. Percentages are not enough: CSS resolves vertical padding against the width.
+const safePad = (width, height) => height > width
+  ? `${Math.round(height*0.13)}px ${Math.round(width*0.17)}px ${Math.round(height*0.24)}px ${Math.round(width*0.06)}px`
+  : "6% 8%";
 const ease = (frame, fps, delay=0, seconds=0.5) => spring({frame:Math.max(0,frame-Math.round(delay*fps)), fps, config:{damping:200}, durationInFrames:Math.max(1,Math.round(seconds*fps))});
 const pop = (frame, fps, delay=0) => spring({frame:Math.max(0,frame-Math.round(delay*fps)), fps, config:{damping:9, stiffness:140}});
 const rise = (frame, fps, u, delay=0, distance=6) => { const p=ease(frame,fps,delay); return {opacity:p, transform:`translateY(${(1-p)*distance*u}px)`}; };
@@ -307,10 +313,14 @@ const Effect = ({theme}) => {
 };
 
 // isolation creates a stacking context, so the effect (z-index -1) paints over the background but under the content.
-const Backdrop = ({theme, style, children}) => <AbsoluteFill style={{background:`linear-gradient(160deg, ${theme.background} 0%, ${theme.background2} 100%)`, color:theme.text, fontFamily:theme.font, justifyContent:"center", alignItems:"center", textAlign:"center", padding:"8%", boxSizing:"border-box", isolation:"isolate", ...style}}>
-  <div style={{position:"absolute", inset:0, zIndex:-1, overflow:"hidden"}}><Effect theme={theme}/></div>
-  {children}
-</AbsoluteFill>;
+// isolation creates a stacking context, so the effect (z-index -1) paints over the background but under the content.
+const Backdrop = ({theme, style, children}) => {
+  const {width, height} = useVideoConfig();
+  return <AbsoluteFill style={{background:`linear-gradient(160deg, ${theme.background} 0%, ${theme.background2} 100%)`, color:theme.text, fontFamily:theme.font, justifyContent:"center", alignItems:"center", textAlign:"center", padding:safePad(width, height), boxSizing:"border-box", isolation:"isolate", ...style}}>
+    <div style={{position:"absolute", inset:0, zIndex:-1, overflow:"hidden"}}><Effect theme={theme}/></div>
+    {children}
+  </AbsoluteFill>;
+};
 
 const TitleScreen = ({text, kicker, subtitle, theme}) => {
   const frame=useCurrentFrame(); const {fps, width}=useVideoConfig(); const u=useUnit();
@@ -423,7 +433,7 @@ const SplitScreen = ({kicker, title, text, icon="bulb", value, prefix="", suffix
       : <div style={{background:c, borderRadius:"50%", padding:u*5, boxShadow:shadowOf(theme,u)}}><Icon name={icon} size={u*22} color={onColor(c)} stroke={2}/></div>}
     {label && <div style={{fontWeight:700, fontSize:u*4.2, marginTop:u*2.4}}>{label}</div>}
   </div>;
-  return <Backdrop theme={theme} style={{flexDirection:row?"row":"column", gap:u*6, padding:row?"6% 8%":"12% 8%"}}>{side==="right"?[visual,words]:[words,visual]}</Backdrop>;
+  return <Backdrop theme={theme} style={{flexDirection:row?"row":"column", gap:u*6}}>{side==="right"?[visual,words]:[words,visual]}</Backdrop>;
 };
 
 const TimelineScreen = ({title, steps=[], color, theme, duration}) => {
@@ -450,18 +460,18 @@ const TimelineScreen = ({title, steps=[], color, theme, duration}) => {
 // Full-frame picture (news photo, person, screenshot) with a slow Ken Burns push and an optional caption.
 // `src` is a file in public/ or a data:/http(s): URL; `fit` is "cover" (default) or "contain".
 const ImageScreen = ({src, fit="cover", title, caption, credit, kenBurns=true, theme, duration}) => {
-  const frame=useCurrentFrame(); const {fps}=useVideoConfig(); const u=useUnit();
+  const frame=useCurrentFrame(); const {fps, width, height}=useVideoConfig(); const u=useUnit();
   if (!src) throw new Error(`Screen "image" needs a src (file in public/ or URL)`);
   const url=/^(https?:|data:)/.test(src) ? src : staticFile(src);
   const zoom=kenBurns ? interpolate(frame,[0,Math.max(1,duration)],[1.0,1.08],clamp) : 1;
   return <AbsoluteFill style={{background:theme.background, fontFamily:theme.font}}>
     {fit==="contain" && <Img src={url} style={{position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover", filter:"blur(40px) brightness(.5)", transform:"scale(1.2)"}}/>}
     <Img src={url} style={{position:"absolute", inset:0, width:"100%", height:"100%", objectFit:fit, transform:`scale(${zoom})`}}/>
-    {(title || caption) && <div style={{position:"absolute", left:0, right:0, bottom:0, padding:`${u*14}px ${u*5}px ${u*7}px`, background:"linear-gradient(transparent, rgba(0,0,0,.85))", color:OVERLAY_TEXT, textAlign:"left"}}>
+    {(title || caption) && <div style={{position:"absolute", left:0, right:0, bottom:0, padding:`${Math.round(height*0.10)}px ${Math.round(width*0.06)}px ${Math.round(height*0.22)}px`, background:"linear-gradient(transparent, rgba(0,0,0,.85))", color:OVERLAY_TEXT, textAlign:"left"}}>
       {title && <div style={{...rise(frame,fps,u,0.15), ...heading(theme), fontWeight:900, fontSize:u*6.4, lineHeight:1.1}}>{title}</div>}
       {caption && <div style={{...rise(frame,fps,u,0.3), color:OVERLAY_MUTED, fontSize:u*4, marginTop:u*1.6}}>{caption}</div>}
     </div>}
-    {credit && <div style={{position:"absolute", right:u*2, top:u*2, color:"rgba(255,255,255,.75)", fontSize:u*2.4, background:"rgba(0,0,0,.45)", padding:`${u*0.6}px ${u*1.2}px`, borderRadius:u*0.8}}>{credit}</div>}
+    {credit && <div style={{position:"absolute", right:`${Math.round(width*0.17)}px`, top:`${Math.round(height*0.10)}px`, color:"rgba(255,255,255,.75)", fontSize:u*2.4, background:"rgba(0,0,0,.45)", padding:`${u*0.6}px ${u*1.2}px`, borderRadius:u*0.8}}>{credit}</div>}
   </AbsoluteFill>;
 };
 
@@ -470,11 +480,11 @@ const ImageScreen = ({src, fit="cover", title, caption, credit, kenBurns=true, t
 // `null` draws no logo); `name` and `tagline` are plain strings. The text uses Inter when the project
 // ships it in public/fonts/ (Video.jsx loads it) and falls back to the theme font otherwise.
 const EndCardScreen = ({logo="aki-logo.png", name="Aki Agent", tagline="", background="#1d2348", font, theme}) => {
-  const frame=useCurrentFrame(); const {fps, width}=useVideoConfig(); const u=useUnit();
+  const frame=useCurrentFrame(); const {fps, width, height}=useVideoConfig(); const u=useUnit();
   const family=font ?? `Inter, ${theme.font}`;
   const a=rise(frame,fps,u,0), b=rise(frame,fps,u,0.15), c=rise(frame,fps,u,0.5);
   const glow=interpolate(frame,[0,Math.round(0.8*fps)],[0.75,1],{...clamp, easing:Easing.out(Easing.cubic)});
-  return <AbsoluteFill style={{background, fontFamily:family, color:"#ffffff", justifyContent:"center", alignItems:"center", padding:"10% 8%", boxSizing:"border-box", textAlign:"center"}}>
+  return <AbsoluteFill style={{background, fontFamily:family, color:"#ffffff", justifyContent:"center", alignItems:"center", padding:safePad(width, height), boxSizing:"border-box", textAlign:"center"}}>
     <div style={{position:"absolute", inset:0, background:"radial-gradient(ellipse at 50% 46%, rgba(255,255,255,.10) 0%, rgba(255,255,255,.03) 38%, transparent 66%)", transform:`scale(${glow})`}}/>
     <div style={{display:"flex", flexDirection:"row", alignItems:"center", justifyContent:"center", gap:u*3.2}}>
       {logo && <Img src={staticFile(logo)} style={{height:u*20, width:"auto", objectFit:"contain", filter:"drop-shadow(0 10px 28px rgba(0,0,0,.45))", ...a}}/>}

@@ -15,7 +15,14 @@ export const buildClips = (plan) => {
   });
 };
 
-export const durationInFrames = (plan) => buildClips(plan).reduce((sum, clip) => sum + clip.length, 0);
+// Frames covered by the kept clips (the speech).
+export const clipsInFrames = (plan) => buildClips(plan).reduce((sum, clip) => sum + clip.length, 0);
+
+// `outro` (seconds) appends a silent closing section after the last clip, where an `endcard` lives.
+// Nothing is spoken there: music stops with the speech; effects may continue into the tail.
+export const tailInFrames = (plan) => Math.max(0, toFrame(Number(plan.outro) || 0, plan.fps));
+
+export const durationInFrames = (plan) => clipsInFrames(plan) + tailInFrames(plan);
 
 // Source seconds -> output seconds. A time inside a removed interval snaps to the next kept
 // clip (side "start") or to the end of the previous one (side "end").
